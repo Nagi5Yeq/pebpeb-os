@@ -1,0 +1,60 @@
+This file contains directions for building guest kernels
+from source.  The basic idea is that each guest, e.g.,
+"hello", that is built from source gets its own entire
+P4 build tree in, e.g.,  guests/hello.  When you type
+"make" in your top-level directory, make will also be
+run in the guests/hello directory, which will hopefully
+cause a kernel to be built in guests/hello/kernel.  That
+kernel image will then be included in your RAM disk, named
+"hello".  For guests/hello to be built in this way the
+STUDENTGUESTS directive in config.mk must include "hello"
+(guests/ directories that are not so listed will be ignored).
+
+Here is a step-by-step guide to building the "hello" guest
+from source:
+
+0. If you already have a test program called "hello",
+   make sure to remove it from STUDENTTESTS in your
+   config.mk.  Likewise, if you are running our pre-built
+   "hello" binary, remove it from 410GUESTBINS.
+
+1. edit config.mk so your STUDENTGUESTS directive
+   contains "hello" (initially you will not have
+   such a directive, so you will need to add one).
+
+2. cd guests
+
+3. Download a copy of the P4 tarball, proj4.tar.gz.
+Note that some browsers will "helpfully" uncompress
+the file for you but leave the filename unchanged.
+So try one of the following two commands at random:
+
+  tar xpvfz proj4.tar.gz
+  tar xpvf proj4.tar.gz
+
+4. mv p4 hello
+
+5. (cd hello && ./update.sh)
+
+Now you have a guests/hello directory that will build a
+guest kernel, but one that does nothing interesting.  The
+next step is to copy the source we gave you into that build
+tree.
+
+5. cd ..
+
+6. (cd 410guests/hello && tar cf - .) | (cd guests/hello && tar xpf -)
+
+7. Upgrade guests/hello/kern/hvstubs.S so it makes hypercalls.
+
+8. make
+
+In your top-level directory, the file "temp/hello" should
+be created, and when you boot your kernel and do "ls" you
+should see "hello".
+
+If you happen to want to build a guest kernel from source
+of your own (such as your P1), you would follow steps 1
+through 5, insert a valid hvstubs.S, and then write the
+rest of your guest kernel (perhaps starting from your P1
+kernel source).

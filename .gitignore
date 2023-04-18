@@ -1,0 +1,13 @@
+.vscode/
+*.o
+*.a
+*.dep
+temp/
+bootfd.img
+kernel
+kernel.strip
+.gdb_history
+410user/progs/
+410user/exec2obj
+.md5s
+user/progs/
