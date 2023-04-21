@@ -17,6 +17,7 @@
 
 #include <common.h>
 #include <paging.h>
+#include <pv.h>
 #include <sync.h>
 
 /** name of idle process */
@@ -24,10 +25,34 @@
 /** name of init process */
 #define INIT_NAME "init"
 
+#define IDLE_PID 2
+#define INIT_PID 1
+
 /** we use fs to find percpu area */
-#define SEGSEL_KERNEL_FS SEGSEL_SPARE0
+#define SEGSEL_KERNEL_FS SEGSEL_SPARE2
 /** index of fs in gdt */
-#define SEGSEL_KERNEL_FS_IDX SEGSEL_SPARE0_IDX
+#define SEGSEL_KERNEL_FS_IDX SEGSEL_SPARE2_IDX
+
+/* G means global segment */
+#define GDT_G_BIT 0x0080000000000000ull
+/* FLAG is control flags for segment */
+#define GDT_FLAG_MASK 0x00f0ff0000000000ull
+/* high part of base address */
+#define GDT_BASE_MASK_HI 0xff000000ull
+/* low part of base address */
+#define GDT_BASE_MASK_LO 0x00ffffffull
+/* position of high part of base address */
+#define GDT_BASE_SHIFT_HI (64 - 32)
+/* position of low part of base address */
+#define GDT_BASE_SHIFT_LO (40 - 24)
+/* high part of limit */
+#define GDT_LIMIT_MASK_HI 0xf0000ull
+/* low part of limit */
+#define GDT_LIMIT_MASK_LO 0x0ffffull
+/* position of high part of limit */
+#define GDT_LIMIT_SHIFT_HI (52 - 20)
+/* position of low part of limit */
+#define GDT_LIMIT_SHIFT_LO (16 - 16)
 
 /** an allocated memory of a process */
 typedef struct region_s {
@@ -98,6 +123,8 @@ typedef struct process_s {
     pa_t cr3;
     vector_t regions; /* record the vitural memories the user has mapped */
     mutex_t mm_lock;  /* lock when operating VM */
+
+    pv_t* pv;
 } process_t;
 
 /** status of the thread, must lock ready_lock to change it, otherwise may be
@@ -159,6 +186,8 @@ int alloc_tid();
  * and stack_lo */
 #define MAX_TOTAL_ARG_LEN (DEFAULT_STACK_SIZE - PAGE_SIZE)
 
+uint64_t create_segsel(va_t base, va_size_t limit, uint64_t flags);
+
 /**
  * @brief create an empty process with one thread and no user memory
  * @return the thread created or NULL on failure
@@ -180,6 +209,8 @@ thread_t* create_process(int tid, char* exe, int argc, const char** argv);
  * @param t the thread to destroy
  */
 void destroy_thread(thread_t* t);
+
+void destroy_pd(pa_t pd_pa);
 
 /**
  * @brief add a memory region to a process

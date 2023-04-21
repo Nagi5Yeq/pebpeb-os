@@ -28,6 +28,7 @@
 #include <interrupt.h>
 #include <mm.h>
 #include <paging.h>
+#include <pv.h>
 #include <sched.h>
 #include <timer.h>
 
@@ -62,10 +63,11 @@ int kernel_main(mbinfo_t* mbinfo, int argc, char** argv, char** envp) {
     idt_init();
     mm_init();
     timer_init();
+    pv_init();
     clear_console();
 
     const char* init_args[] = {INIT_NAME};
-    thread_t* init = create_process(0, INIT_NAME, 1, init_args);
+    thread_t* init = create_process(INIT_PID, INIT_NAME, 1, init_args);
     init_process = init->process;
     add_thread(init);
     insert_ready_tail(init);
@@ -93,8 +95,7 @@ static void kernel_smp_entry(int cpuid) {
 
 static void kernel_smp_main() {
     const char* idle_args[] = {IDLE_NAME};
-    thread_t* idle = create_process(0, IDLE_NAME, 1, idle_args);
-    add_thread(idle);
+    thread_t* idle = create_process(IDLE_PID, IDLE_NAME, 1, idle_args);
     set_idle(idle);
 
     while (1) {

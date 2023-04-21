@@ -29,7 +29,7 @@ heap_t timers;
 /* we want a 2ms thread switch but since sometimes interrupts are disabled, we
  * set a higher rate to compensate this
  */
-#define TIMER_FREQ 1000
+#define TIMER_FREQ 1
 
 void timer_init() {
     int counter = TIMER_RATE / TIMER_FREQ;

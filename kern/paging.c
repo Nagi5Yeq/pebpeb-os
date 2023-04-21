@@ -62,15 +62,14 @@ void paging_init() {
     *lapic_pte =
         (make_pte(lapic_pa, PTE_G, PTE_SUPERVISOR, PTE_RW, PTE_PRESENT) |
          (PTE_PCD << PTE_PCD_SHIFT));
-    invlpg(LAPIC_VIRT_BASE);
 
     set_cr4(get_cr4() | CR4_PSE | CR4_PGE);
     set_cr3((uint32_t)kernel_pd);
-    set_cr0(get_cr0() | CR0_PE | CR0_PG);
+    set_cr0(get_cr0() | CR0_PE | CR0_PG | CR0_WP);
 }
 
 void paging_enable() {
     set_cr4(get_cr4() | CR4_PSE | CR4_PGE);
     set_cr3((uint32_t)kernel_pd);
-    set_cr0(get_cr0() | CR0_PE | CR0_PG);
+    set_cr0(get_cr0() | CR0_PE | CR0_PG | CR0_WP);
 }

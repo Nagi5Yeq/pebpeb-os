@@ -13,6 +13,7 @@
 #include <x86/seg.h>
 #include <x86/timer_defines.h>
 
+#include <hvcall_int.h>
 #include <keyhelp.h>
 #include <simics.h>
 #include <stdio.h>
@@ -274,6 +275,8 @@ void sys_swexn();
  */
 void sys_enosys();
 
+void sys_hvcall();
+
 /** index of first syscall */
 #define IDT_SYSCALL_START (X86_PIC_MASTER_IRQ_BASE + 16)
 
@@ -282,7 +285,7 @@ void idt_init() {
 
     int i;
     for (i = 0; i < IDT_SYSCALL_START; i++) {
-        idt[i] = make_idt((va_t)default_handler, IDT_TYPE_I32, IDT_DPL_KERNEL);
+        idt[i] = make_idt((va_t)default_handler, IDT_TYPE_T32, IDT_DPL_KERNEL);
     }
 
     idt[IDT_DE] = make_idt((va_t)de_handler, IDT_TYPE_I32, IDT_DPL_KERNEL);
@@ -353,6 +356,8 @@ void idt_init() {
     idt[READFILE_INT] =
         make_idt((va_t)sys_readfile, IDT_TYPE_T32, IDT_DPL_USER);
     idt[SWEXN_INT] = make_idt((va_t)sys_swexn, IDT_TYPE_T32, IDT_DPL_USER);
+
+    idt[HV_INT] = make_idt((va_t)sys_hvcall, IDT_TYPE_T32, IDT_DPL_USER);
 }
 
 /** string explanation of fault */
@@ -395,6 +400,8 @@ const static char* reasons[] = {"Division Error",
  */
 static void dump_fault(ureg_t* frame);
 
+static int handle_zfod(ureg_t* frame, thread_t* t);
+
 /**
  * @brief handle a fault
  * @param frame ureg registers
@@ -403,24 +410,9 @@ void handle_fault(ureg_t* frame) {
     thread_t* current = get_current();
     if (frame->cause == SWEXN_CAUSE_PAGEFAULT && frame->cr2 >= USER_MEM_START) {
         /* check ZFOD */
-        pa_t old_pa;
-        page_directory_t* pd =
-            (page_directory_t*)map_phys_page(current->process->cr3, &old_pa);
-        pde_t* pde = &(*pd)[get_pd_index(frame->cr2)];
-        if (*pde != BAD_PDE) {
-            pa_t pt_pa = get_page_table(*pde);
-            page_table_t* pt = (page_table_t*)map_phys_page(pt_pa, NULL);
-            pte_t* pte = &(*pt)[get_pt_index(frame->cr2)];
-            if (*pte != BAD_PTE &&
-                ((*pte & (PTE_PRESENT << PTE_P_SHIFT)) == 0)) {
-                *pte = (*pte | (PTE_PRESENT << PTE_P_SHIFT));
-                invlpg(frame->cr2);
-                memset((void*)(frame->cr2 & PAGE_BASE_MASK), 0, PAGE_SIZE);
-                map_phys_page(old_pa, NULL);
-                return;
-            }
+        if (handle_zfod(frame, current) == 0) {
+            return;
         }
-        map_phys_page(old_pa, NULL);
     }
     if (frame->cs == SEGSEL_KERNEL_CS) {
         /* recover from accessing user memory */
@@ -479,6 +471,29 @@ kill_thread:
         current->process->exit_value = -2;
     }
     kill_current();
+}
+
+static int handle_zfod(ureg_t* frame, thread_t* t) {
+    int result = -1;
+    process_t* p = t->process;
+    int old_if = save_clear_if();
+    pa_t old_pa;
+    page_directory_t* pd = (page_directory_t*)map_phys_page(p->cr3, &old_pa);
+    pde_t* pde = &(*pd)[get_pd_index(frame->cr2)];
+    if (*pde != BAD_PDE) {
+        pa_t pt_pa = get_page_table(*pde);
+        page_table_t* pt = (page_table_t*)map_phys_page(pt_pa, NULL);
+        pte_t* pte = &(*pt)[get_pt_index(frame->cr2)];
+        if (*pte != BAD_PTE && ((*pte & (PTE_PRESENT << PTE_P_SHIFT)) == 0)) {
+            *pte = (*pte | (PTE_PRESENT << PTE_P_SHIFT));
+            invlpg(frame->cr2);
+            memset((void*)(frame->cr2 & PAGE_BASE_MASK), 0, PAGE_SIZE);
+            result = 0;
+        }
+    }
+    map_phys_page(old_pa, NULL);
+    restore_if(old_if);
+    return result;
 }
 
 static void dump_fault(ureg_t* frame) {

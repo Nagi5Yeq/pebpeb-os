@@ -9,7 +9,7 @@
 #include <x86/seg.h>
 #include <x86/interrupt_defines.h>
 
-#define SEGSEL_KERNEL_FS SEGSEL_SPARE0
+#define SEGSEL_KERNEL_FS SEGSEL_SPARE2
 
 .global default_handler
 default_handler:
@@ -95,8 +95,6 @@ FAULT_HANDLER_NOERR mf 0x10
 FAULT_HANDLER_ERR ac 0x11
 FAULT_HANDLER_NOERR mc 0x12
 FAULT_HANDLER_NOERR xf 0x13
-
-#define SEGSEL_KERNEL_FS SEGSEL_SPARE0
 
 .global timer_handler
 .type timer_handler, %function

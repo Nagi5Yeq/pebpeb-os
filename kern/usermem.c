@@ -58,10 +58,6 @@ static void usermem_finish(reg_t old_eip0) {
 }
 
 int copy_from_user(va_t addr, int size, void* buf) {
-    va_t end = addr + size;
-    if (addr < USER_MEM_START || end < addr || end >= DEFAULT_STACK_END) {
-        return -1;
-    }
     reg_t old_eip0 = usermem_setup();
     int i, result = 0;
     for (i = 0; i < size; i++) {
@@ -75,10 +71,6 @@ int copy_from_user(va_t addr, int size, void* buf) {
 }
 
 int copy_to_user(va_t addr, int size, void* buf) {
-    va_t end = addr + size;
-    if (addr < USER_MEM_START || end < addr || end >= DEFAULT_STACK_END) {
-        return -1;
-    }
     reg_t old_eip0 = usermem_setup();
     int i, result = 0;
     for (i = 0; i < size; i++) {
@@ -92,12 +84,6 @@ int copy_to_user(va_t addr, int size, void* buf) {
 }
 
 char* copy_string_from_user(va_t addr, int maxlen) {
-    if (addr < USER_MEM_START || addr >= DEFAULT_STACK_END) {
-        return NULL;
-    }
-    if (DEFAULT_STACK_END - addr < maxlen) {
-        maxlen = DEFAULT_STACK_END - addr;
-    }
     reg_t old_eip0 = usermem_setup();
     int len = 0, buflen = 3 * sizeof(int);
     char* buf = malloc(buflen);
@@ -134,10 +120,6 @@ read_string_finished:
 }
 
 int print_buf_from_user(va_t addr, int len) {
-    va_t end = addr + len;
-    if (addr < USER_MEM_START || end < addr || end >= DEFAULT_STACK_END) {
-        return -1;
-    }
     reg_t old_eip0 = usermem_setup();
     int i, result = 0;
     char c;

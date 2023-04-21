@@ -6,6 +6,7 @@
  *  @bug No functional bugs
  */
 
+#include <limits.h>
 #include <malloc_internal.h>
 #include <string.h>
 #include <x86/asm.h>
@@ -59,26 +60,15 @@ queue_t* ready = NULL;
 rb_t* threads = &rb_nil;
 mutex_t threads_lock = MUTEX_INIT;
 
-/* G means global segment */
-#define GDT_G_BIT 0x0080000000000000ull
-/* FLAG is control flags for segment */
-#define GDT_FLAG_MASK 0x00f0ff0000000000ull
-/* high part of base address */
-#define GDT_BASE_MASK_HI 0xff000000ull
-/* low part of base address */
-#define GDT_BASE_MASK_LO 0x00ffffffull
-/* position of high part of base address */
-#define GDT_BASE_SHIFT_HI (64 - 32)
-/* position of low part of base address */
-#define GDT_BASE_SHIFT_LO (40 - 24)
-/* high part of limit */
-#define GDT_LIMIT_MASK_HI 0xf0000ull
-/* low part of limit */
-#define GDT_LIMIT_MASK_LO 0x0ffffull
-/* position of high part of limit */
-#define GDT_LIMIT_SHIFT_HI (52 - 20)
-/* position of low part of limit */
-#define GDT_LIMIT_SHIFT_LO (16 - 16)
+uint64_t create_segsel(va_t base, va_size_t limit, uint64_t flags) {
+    uint64_t b = (uint64_t)base;
+    uint64_t l = (uint64_t)limit;
+    uint64_t ss = (((b & GDT_BASE_MASK_HI) << GDT_BASE_SHIFT_HI) |
+                   ((b & GDT_BASE_MASK_LO) << GDT_BASE_SHIFT_LO) |
+                   ((l & GDT_LIMIT_MASK_HI) << GDT_LIMIT_SHIFT_HI) |
+                   ((l & GDT_LIMIT_MASK_LO) << GDT_LIMIT_SHIFT_LO) | flags);
+    return ss;
+}
 
 /**
  * @brief set fs
@@ -90,16 +80,9 @@ void setup_percpu(percpu_t* percpu) {
     uint64_t* gdt = (uint64_t*)gdt_base();
     uint64_t ds = gdt[SEGSEL_KERNEL_DS_IDX];
     /* copy ds's flags so we do not need to create one */
-    uint64_t ds_flags = (ds & GDT_FLAG_MASK);
-    uint64_t base = (uint64_t)(uint32_t)percpu;
-    uint64_t limit = base + sizeof(percpu_t) - 1;
-    uint64_t fs = (((base & GDT_BASE_MASK_HI) << GDT_BASE_SHIFT_HI) |
-                   ((base & GDT_BASE_MASK_LO) << GDT_BASE_SHIFT_LO) |
-                   ((limit & GDT_LIMIT_MASK_HI) << GDT_LIMIT_SHIFT_HI) |
-                   ((limit & GDT_LIMIT_MASK_LO) << GDT_LIMIT_SHIFT_LO) |
-                   (ds_flags & (~GDT_G_BIT)));
-    gdt[SEGSEL_KERNEL_FS_IDX] = fs;
-    lgdt(gdt, GDT_SEGS * sizeof(uint64_t) - 1);
+    uint64_t ds_flags = (ds & GDT_FLAG_MASK & (~GDT_G_BIT));
+    gdt[SEGSEL_KERNEL_FS_IDX] =
+        create_segsel((va_t)percpu, sizeof(percpu_t) - 1, ds_flags);
     set_fs(SEGSEL_KERNEL_FS);
 }
 
@@ -160,6 +143,7 @@ thread_t* create_empty_process() {
     }
     restore_if(old_if);
     p->mm_lock = MUTEX_INIT;
+    p->pv = NULL;
 
     t->status = THREAD_DEAD;
     t->status_lock = SPL_INIT;
@@ -247,14 +231,32 @@ thread_t* create_process(int tid, char* exe, int argc, const char** argv) {
     }
     t->process->pid = t->rb_node.key = ((tid == 0) ? alloc_tid() : tid);
 
+    simple_elf_t elf;
+    if (elf_load_helper(&elf, exe) != ELF_SUCCESS) {
+        goto open_elf_fail;
+    }
+
+    if (elf.e_entry < USER_MEM_START) {
+        va_size_t mem_size = PV_DEFAULT_SIZE;
+        if (argc > 2) {
+            goto too_many_args_for_pv;
+        }
+        if (argc > 1) {
+            mem_size = (va_size_t)strtoul(argv[1], NULL, 10);
+            if (mem_size < PV_MINIMUM_SIZE || mem_size == ULONG_MAX) {
+                goto bad_mem_size_for_pv;
+            }
+        }
+        mem_size <<= 20;
+        return create_pv_process(t, &elf, exe, mem_size);
+    }
+
     /* temporarily use new process's cr3 to load elf */
-    reg_t old_cr3 = get_current()->process->cr3;
+    pa_t old_cr3 = get_current()->process->cr3;
     get_current()->process->cr3 = t->process->cr3;
     set_cr3(t->process->cr3);
 
-    simple_elf_t elf;
-    if (elf_load_helper(&elf, exe) != ELF_SUCCESS ||
-        process_load_elf(t->process, &elf, exe) != 0) {
+    if (process_load_elf(t->process, &elf, exe) != 0) {
         goto load_elf_fail;
     }
 
@@ -323,6 +325,9 @@ alloc_argc_addr_fail:
 load_elf_fail:
     get_current()->process->cr3 = old_cr3;
     set_cr3(old_cr3);
+bad_mem_size_for_pv:
+too_many_args_for_pv:
+open_elf_fail:
     destroy_thread(t);
 alloc_tcb_fail:
     return NULL;
@@ -346,22 +351,30 @@ void destroy_thread(thread_t* t) {
         free_user_pages(r->paddr, r->size / PAGE_SIZE);
     }
     vector_free(&p->regions);
+    if (p->pv == NULL) {
+        destroy_pd(p->cr3);
+    } else {
+        destroy_pv(p->pv);
+    }
+    sfree(p, sizeof(process_t));
+}
 
+void destroy_pd(pa_t pd_pa) {
+    int i;
     int old_if = save_clear_if();
     for (i = USER_PD_START; i < NUM_PAGE_ENTRY; i++) {
-        page_directory_t* pd = (page_directory_t*)map_phys_page(p->cr3, NULL);
+        page_directory_t* pd = (page_directory_t*)map_phys_page(pd_pa, NULL);
         if ((*pd)[i] != BAD_PDE) {
             pa_t pt = get_page_table((*pd)[i]);
             free_user_pages(pt, 1);
         }
     }
     restore_if(old_if);
-    free_user_pages(p->cr3, 1);
-    sfree(p, sizeof(process_t));
+    free_user_pages(pd_pa, 1);
 }
 
 int alloc_tid() {
-    static int tid = 1;
+    static int tid = IDLE_PID + 1;
     static int next_check = (1 << 31);
     if (tid == next_check) {
         /* allocated all pids */
@@ -370,7 +383,7 @@ int alloc_tid() {
         p = rb_min(threads);
         if (p == &rb_nil) {
             /* no pid inuse */
-            tid = 1;
+            tid = IDLE_PID + 1;
             next_check = (1 << 31);
         } else {
             while (1) {
@@ -419,7 +432,6 @@ static int load_segment(process_t* p,
         goto add_region_fail;
     }
 
-    int rw = (is_rw ? PTE_RW : PTE_RO);
     int i = 0;
     int offset = 0;
     /* file page table one entry per loop */
@@ -441,13 +453,38 @@ static int load_segment(process_t* p,
         int old_if = save_clear_if();
         page_table_t* pt = (page_table_t*)map_phys_page(pt_pa, NULL);
         /* do not set P bit for ZFOD */
-        (*pt)[pt_index] = make_pte(paddr + offset, 0, PTE_USER, rw, 0);
+        (*pt)[pt_index] = make_pte(paddr + offset, 0, PTE_USER, PTE_RW, 0);
         restore_if(old_if);
         invlpg(m_start + offset);
     } while (++i < n_pages);
 
     if (f != NULL) {
         read_file(f, f_off, f_len, (char*)m_off);
+    }
+    if (is_rw == 0) {
+        i = 0;
+        pa_t pt_pa = find_or_create_pt(p, m_start);
+        if (pt_pa == BAD_PA) {
+            goto add_pt_fail;
+        }
+        do {
+            offset = i * PAGE_SIZE;
+            int pt_index = get_pt_index(m_start + offset);
+            if (pt_index == 0) {
+                /* step to next page table */
+                pt_pa = find_or_create_pt(p, m_start + offset);
+                if (pt_pa == BAD_PA) {
+                    goto add_pt_fail;
+                }
+            }
+
+            int old_if = save_clear_if();
+            page_table_t* pt = (page_table_t*)map_phys_page(pt_pa, NULL);
+            pte_t* pte = &(*pt)[pt_index];
+            *pte = ((*pte) & (~(PTE_RW << PTE_RW_SHIFT)));
+            restore_if(old_if);
+            invlpg(m_start + offset);
+        } while (++i < n_pages);
     }
     return 0;
 
@@ -556,12 +593,15 @@ void swap_process_inplace(thread_t* newt) {
     pa_t cr3 = oldp->cr3;
     vector_t regions = oldp->regions;
     queue_t* p_threads = oldp->threads;
+    pv_t* pv = oldp->pv;
     oldp->cr3 = newp->cr3;
     oldp->regions = newp->regions;
     oldp->threads = newp->threads;
+    oldp->pv = newp->pv;
     newp->cr3 = cr3;
     newp->regions = regions;
     newp->threads = p_threads;
+    newp->pv = pv;
     newt->process = oldp;
     oldt->process = newp;
     set_cr3(newp->cr3);
@@ -593,18 +633,7 @@ void kill_current() {
     thread_t* current = get_current();
     process_t* p = current->process;
     /* respawn important process */
-    if (current == get_idle()) {
-        if (p->refcount == 1) {
-            const char* idle_args[] = {IDLE_NAME};
-            thread_t* new_idle =
-                create_process(current->rb_node.key, IDLE_NAME, 1, idle_args);
-            if (new_idle == NULL) {
-                panic("no space to allocate idle process");
-            }
-            swap_process_inplace(new_idle);
-            set_idle(new_idle);
-        }
-    } else if (p == init_process) {
+    if (p == init_process) {
         if (p->refcount == 1) {
             mutex_lock(&p->wait_lock);
             /* reclaim dead childs */
@@ -674,18 +703,11 @@ void kill_current() {
             free_user_pages(r->paddr, r->size / PAGE_SIZE);
         }
         vector_free(&p->regions);
-
-        int old_if = save_clear_if();
-        for (i = USER_PD_START; i < NUM_PAGE_ENTRY; i++) {
-            page_directory_t* pd =
-                (page_directory_t*)map_phys_page(old_cr3, NULL);
-            if ((*pd)[i] != BAD_PDE) {
-                pa_t pt = get_page_table((*pd)[i]);
-                free_user_pages(pt, 1);
-            }
+        if (p->pv == NULL) {
+            destroy_pd(old_cr3);
+        } else {
+            destroy_pv(p->pv);
         }
-        restore_if(old_if);
-        free_user_pages(old_cr3, 1);
     }
 
     /* make sure we do not get swapped out before borrowing kthread's stack */

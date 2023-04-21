@@ -13,7 +13,7 @@
 try_read:
     mov 0x4(%esp), %eax
     mov 0x8(%esp), %esi
-    mov (%eax), %al
+    mov %gs:(%eax), %al
     mov %al, (%esi)
     xor %eax, %eax
     ret
@@ -23,7 +23,7 @@ try_read:
 try_write:
     mov 0x4(%esp), %eax
     mov 0x8(%esp), %edx
-    mov %dl, (%eax)
+    mov %dl, %gs:(%eax)
     xor %eax, %eax
     ret
 

@@ -9,7 +9,7 @@
 #include <simics.h>
 #include <x86/seg.h>
 
-#define SEGSEL_KERNEL_FS SEGSEL_SPARE0
+#define SEGSEL_KERNEL_FS SEGSEL_SPARE2
 
 .macro SYSCALL name
 .global sys_\name
@@ -26,6 +26,11 @@ sys_\name:
     mov $SEGSEL_KERNEL_FS, %eax
     mov %ax, %fs
     cld
+    push %esp
+    call handle_pv_syscall
+    add $0x4, %esp
+    test %eax, %eax
+    jne return_to_user
     push %esp
     call sys_\name\()_real
     add $0x4, %esp
@@ -59,3 +64,22 @@ SYSCALL readfile
 SYSCALL swexn
 
 SYSCALL enosys
+
+.global sys_hvcall
+.type sys_hvcall, %function
+sys_hvcall:
+    pusha /* save a stack_frame_t structure */
+    push %ds
+    push %es
+    push %fs
+    push %gs
+    mov $SEGSEL_KERNEL_DS, %eax
+    mov %ax, %ds
+    mov %ax, %es
+    mov $SEGSEL_KERNEL_FS, %eax
+    mov %ax, %fs
+    cld
+    push %esp
+    call sys_hvcall_real
+    add $0x4, %esp
+    jmp return_to_user /* check pending exit before iret */
