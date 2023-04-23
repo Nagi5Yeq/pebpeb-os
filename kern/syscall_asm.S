@@ -28,10 +28,10 @@ sys_\name:
     cld
     push $\index
     push %esp
-    call handle_pv_syscall
+    call pv_handle_syscall
     add $0x8, %esp
     test %eax, %eax
-    jne return_to_user
+    je return_to_user
     push %esp
     call sys_\name\()_real
     add $0x4, %esp
@@ -100,7 +100,7 @@ sys_\name:
     cld
     push $\index
     push %esp
-    call handle_pv_syscall
+    call pv_handle_syscall
     add $0x8, %esp
     jmp return_to_user /* check pending exit before iret */
 .endm

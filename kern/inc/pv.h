@@ -130,6 +130,8 @@ int pv_inject_irq(stack_frame_t* f, int index, int arg);
 
 void pv_check_pending_irq(stack_frame_t* f);
 
+void do_inject_irq(thread_t* t, pv_t* pv, stack_frame_t* f, int arg, va_t eip);
+
 typedef struct pv_frame_s {
     reg_t cr2;
     reg_t error_code;

@@ -270,11 +270,7 @@ no_idt_handler:
     pv_die("No interrupt handler installed");
 }
 
-static inline void do_inject_irq(thread_t* t,
-                                 pv_t* pv,
-                                 stack_frame_t* f,
-                                 int arg,
-                                 va_t eip) {
+void do_inject_irq(thread_t* t, pv_t* pv, stack_frame_t* f, int arg, va_t eip) {
     reg_t new_esp;
     pv_frame_t pv_f;
     pv_f.cr2 = 0;

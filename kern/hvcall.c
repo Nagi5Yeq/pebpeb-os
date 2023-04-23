@@ -52,16 +52,31 @@ static void hvcall_print_at(stack_frame_t* f);
 static void hvcall_refpd(int ref);
 static void hvcall_loadpd(stack_frame_t* f);
 
-// 0: not pv, 1: processed
-int handle_pv_syscall(stack_frame_t* f, int index) {
-    if (get_current()->process->pv == NULL) {
-        return 0;
+// 0: processed
+int pv_handle_syscall(stack_frame_t* f, int index) {
+    thread_t* t = get_current();
+    pv_t* pv = t->process->pv;
+    if (pv == NULL) {
+        return -1;
     }
     if (f->eip >= USER_MEM_START) {
-        // inject interrupt
-        return 1;
+        pv_idt_entry_t* idt = pv_classify_interrupt(pv, index);
+        if (idt->eip == 0) {
+            goto no_idt_handler;
+        }
+        if (idt->desc != VIDT_DPL_3) {
+            idt = &pv->vidt.fault[SWEXN_CAUSE_PROTFAULT - PV_FAULT_START];
+            if (idt->eip == 0) {
+                goto no_idt_handler;
+            }
+        }
+        do_inject_irq(t, pv, f, 0, idt->eip);
+        return 0;
     }
     pv_die("Syscall is not allowed for PV kernels");
+
+no_idt_handler:
+    pv_die("No interrupt handler installed");
     return 1;
 }
 
