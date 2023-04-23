@@ -15,25 +15,12 @@
 #include <x86/video_defines.h>
 
 #include <console.h>
-
-/** how many bits in a x86 byte */
-#define NUM_OF_BITS_X86 8
-/** Mask bits for a 8-bit byte */
-#define BYTE_MASK_X86 0xFF
+#include <sched.h>
 
 /** index of the register to start displaying cursor */
 #define CRTC_CURSOR_START 10
 /** bit to start displaying cursor */
 #define CURSOR_ENABLE_BIT 0x20
-
-/**
- * Someone is not satisfied with the type name char_t so we use this
- * to reperesent a char on screen so that nobody will mistake it with 'char'
- */
-typedef struct a_char_on_screen_s {
-    uint8_t ch;    /** char */
-    uint8_t color; /** color */
-} a_char_on_screen_t;
 
 /** pointer to the viedo memory at B800h */
 a_char_on_screen_t (*console_mem)[CONSOLE_WIDTH] =
@@ -44,17 +31,18 @@ a_char_on_screen_t (*console_mem)[CONSOLE_WIDTH] =
 /** initial color of the cursor */
 #define DEFAULT_COLOR (FGND_WHITE | BGND_BLACK)
 
-/** x position of the cursor */
-static int cur_x = 0;
-/** y position of the cursor */
-static int cur_y = 0;
-/** current color of the cursor */
-static char cur_color = DEFAULT_COLOR;
-/** should the cursor be displayed? */
-static int cur_shown = true;
+pts_t* active_pts = NULL;
+spl_t pts_lock = SPL_INIT;
+queue_t* all_pts = NULL;
 
-/** mutex for console operations */
-mutex_t console_lock = MUTEX_INIT;
+void pts_init(pts_t* pts) {
+    pts->cur_x = pts->cur_y = 0;
+    pts->cur_color = DEFAULT_COLOR;
+    pts->cur_shown = 1;
+    pts->lock = MUTEX_INIT;
+    pts->refcount = 0;
+    queue_insert_head(&all_pts, &pts->pts_link);
+}
 
 /**
  * @brief Move the cursor to a position. Position is checked before calling this
@@ -62,151 +50,140 @@ mutex_t console_lock = MUTEX_INIT;
  * @param x x
  * @param y y
  */
-static void move_cursor(int x, int y) {
-    cur_x = x;
-    cur_y = y;
-    int pos = y * CONSOLE_WIDTH + x;
-    outb(CRTC_IDX_REG, CRTC_CURSOR_LSB_IDX);
-    outb(CRTC_DATA_REG, pos & BYTE_MASK_X86);
-    outb(CRTC_IDX_REG, CRTC_CURSOR_MSB_IDX);
-    outb(CRTC_DATA_REG, pos >> NUM_OF_BITS_X86);
+static inline void move_cursor(pts_t* pts, int x, int y) {
+    pts->cur_x = x;
+    pts->cur_y = y;
+    int old_if = spl_lock(&pts_lock);
+    if (active_pts == pts) {
+        int pos = y * CONSOLE_WIDTH + x;
+        outb(CRTC_IDX_REG, CRTC_CURSOR_LSB_IDX);
+        outb(CRTC_DATA_REG, pos & 0xff);
+        outb(CRTC_IDX_REG, CRTC_CURSOR_MSB_IDX);
+        outb(CRTC_DATA_REG, pos >> 8);
+    }
+    spl_unlock(&pts_lock, old_if);
 }
 
 /**
  * @brief Scroll the console by one line and clean the last line
  */
-static void scroll_page() {
+static inline void scroll_page(pts_t* pts) {
     /* move all but last line forward */
-    memmove(console_mem[0], console_mem[1],
+    memmove(pts->mem[0], pts->mem[1],
             sizeof(a_char_on_screen_t) * CONSOLE_WIDTH * (CONSOLE_HEIGHT - 1));
     int i;
     for (i = 0; i < CONSOLE_WIDTH; i++) {
-        console_mem[CONSOLE_HEIGHT - 1][i] =
-            (a_char_on_screen_t){BLANK_CH, cur_color};
+        pts->mem[CONSOLE_HEIGHT - 1][i] =
+            (a_char_on_screen_t){BLANK_CH, pts->cur_color};
     }
+    int old_if = spl_lock(&pts_lock);
+    if (active_pts == pts) {
+        memmove(
+            console_mem[0], console_mem[1],
+            sizeof(a_char_on_screen_t) * CONSOLE_WIDTH * (CONSOLE_HEIGHT - 1));
+        int i;
+        for (i = 0; i < CONSOLE_WIDTH; i++) {
+            console_mem[CONSOLE_HEIGHT - 1][i] =
+                (a_char_on_screen_t){BLANK_CH, pts->cur_color};
+        }
+    }
+    spl_unlock(&pts_lock, old_if);
+}
+
+static inline void draw_char(pts_t* pts,
+                             int row,
+                             int col,
+                             a_char_on_screen_t ch) {
+    pts->mem[row][col] = ch;
+    int old_if = spl_lock(&pts_lock);
+    if (active_pts == pts) {
+        console_mem[row][col] = ch;
+    }
+    spl_unlock(&pts_lock, old_if);
 }
 
 int putbyte(char ch) {
+    return pts_putbyte(get_current()->pts, ch);
+}
+
+int pts_putbyte(pts_t* pts, char ch) {
     if (ch == '\n') {
-        if (cur_y < CONSOLE_HEIGHT - 1) {
-            move_cursor(0, cur_y + 1);
+        if (pts->cur_y < CONSOLE_HEIGHT - 1) {
+            move_cursor(pts, 0, pts->cur_y + 1);
         } else {
-            scroll_page();
-            move_cursor(0, cur_y);
+            scroll_page(pts);
+            move_cursor(pts, 0, pts->cur_y);
         }
         return ch;
     }
     if (ch == '\r') {
-        move_cursor(0, cur_y);
+        move_cursor(pts, 0, pts->cur_y);
         return ch;
     }
     if (ch == '\b') {
-        if (cur_x > 0) {
-            move_cursor(cur_x - 1, cur_y);
+        if (pts->cur_x > 0) {
+            move_cursor(pts, pts->cur_x - 1, pts->cur_y);
 
-        } else if (cur_y > 0) {
-            move_cursor(CONSOLE_WIDTH - 1, cur_y - 1);
+        } else if (pts->cur_y > 0) {
+            move_cursor(pts, CONSOLE_WIDTH - 1, pts->cur_y - 1);
         }
-        console_mem[cur_y][cur_x] = (a_char_on_screen_t){BLANK_CH, cur_color};
+        a_char_on_screen_t c = {BLANK_CH, pts->cur_color};
+        draw_char(pts, pts->cur_y, pts->cur_x, c);
         return ch;
     }
     /* save the position where we should show the char */
-    int prev_x = cur_x, prev_y = cur_y;
-    if (cur_x < CONSOLE_WIDTH - 1) {
+    int prev_x = pts->cur_x, prev_y = pts->cur_y;
+    if (pts->cur_x < CONSOLE_WIDTH - 1) {
         /* move forward */
-        move_cursor(cur_x + 1, cur_y);
-    } else if (cur_y < CONSOLE_HEIGHT - 1) {
+        move_cursor(pts, pts->cur_x + 1, pts->cur_y);
+    } else if (pts->cur_y < CONSOLE_HEIGHT - 1) {
         /* go to next line */
-        move_cursor(0, cur_y + 1);
+        move_cursor(pts, 0, pts->cur_y + 1);
     } else {
         /* scroll and go to beginning of the line */
-        scroll_page();
-        move_cursor(0, cur_y);
+        scroll_page(pts);
+        move_cursor(pts, 0, pts->cur_y);
         prev_y -= 1;
     }
-    console_mem[prev_y][prev_x] = (a_char_on_screen_t){ch, cur_color};
+    a_char_on_screen_t c = {ch, pts->cur_color};
+    draw_char(pts, prev_y, prev_x, c);
     return ch;
 }
 
-void putbytes(const char* s, int len) {
+void pts_putbytes(pts_t* pts, const char* s, int len) {
     if (s == NULL || len <= 0) {
         return;
     }
     int i;
     for (i = 0; i < len; i++) {
-        putbyte(s[i]);
+        pts_putbyte(pts, s[i]);
     }
 }
 
-void draw_char(int row, int col, int ch, int color) {
-    if (row >= CONSOLE_HEIGHT || row < 0) {
-        return;
-    }
-    if (col >= CONSOLE_WIDTH || col < 0) {
-        return;
-    }
-    if (color > BYTE_MASK_X86 || color < 0) {
-        return;
-    }
-    console_mem[row][col] = (a_char_on_screen_t){ch, color};
-}
-
-int set_term_color(int color) {
-    if (color > BYTE_MASK_X86 || color < 0) {
+int pts_set_term_color(pts_t* pts, int color) {
+    if (color > 0xff || color < 0) {
         return -1;
     }
-    cur_color = (char)color;
+    pts->cur_color = (char)color;
     return 0;
 }
 
-void get_term_color(int* color) {
-    *color = cur_color;
+void pts_get_term_color(pts_t* pts, int* color) {
+    *color = pts->cur_color;
 }
 
-int set_cursor(int row, int col) {
+int pts_set_cursor(pts_t* pts, int row, int col) {
     if (row >= CONSOLE_HEIGHT || row < 0) {
         return -1;
     }
     if (col >= CONSOLE_WIDTH || col < 0) {
         return -1;
     }
-    move_cursor(col, row);
+    move_cursor(pts, col, row);
     return 0;
 }
 
-void get_cursor(int* row, int* col) {
-    *row = cur_y;
-    *col = cur_x;
-}
-
-void hide_cursor(void) {
-    cur_shown = 0;
-    outb(CRTC_IDX_REG, CRTC_CURSOR_START);
-    outb(CRTC_DATA_REG, inb(CRTC_DATA_REG) | CURSOR_ENABLE_BIT);
-}
-
-void show_cursor(void) {
-    cur_shown = 1;
-    outb(CRTC_IDX_REG, CRTC_CURSOR_START);
-    outb(CRTC_DATA_REG, inb(CRTC_DATA_REG) & ~CURSOR_ENABLE_BIT);
-}
-
-void clear_console(void) {
-    move_cursor(0, 0);
-    int i, j;
-    for (i = 0; i < CONSOLE_HEIGHT - 1; i++) {
-        for (j = 0; j < CONSOLE_WIDTH - 1; j++) {
-            console_mem[i][j] = (a_char_on_screen_t){BLANK_CH, cur_color};
-        }
-    }
-}
-
-char get_char(int row, int col) {
-    if (row >= CONSOLE_HEIGHT || row < 0) {
-        return BLANK_CH;
-    }
-    if (col >= CONSOLE_WIDTH || col < 0) {
-        return BLANK_CH;
-    }
-    return console_mem[row][col].ch;
+void pts_get_cursor(pts_t* pts, int* row, int* col) {
+    *row = pts->cur_y;
+    *col = pts->cur_x;
 }

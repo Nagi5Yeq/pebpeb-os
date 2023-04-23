@@ -63,6 +63,10 @@ void sys_thread_fork_real(stack_frame_t* f) {
     yf->eflags = DEFAULT_EFLAGS;
     yf->raddr = (reg_t)return_to_user;
 
+    t->pts = get_current()->pts;
+    mutex_lock(&t->pts->lock);
+    t->pts->refcount++;
+    mutex_unlock(&t->pts->lock);
     t->process = p;
     mutex_lock(&p->refcount_lock);
     p->refcount++;

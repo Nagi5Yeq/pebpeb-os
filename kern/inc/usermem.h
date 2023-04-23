@@ -45,6 +45,6 @@ char* copy_string_from_user(va_t addr, int maxlen);
  * @param maxlen maximum length of to print
  * @return 0 on success, -1 on failure
  */
-int print_buf_from_user(va_t addr, int maxlen);
+int print_buf_from_user(pts_t* pts, va_t addr, int maxlen);
 
 #endif

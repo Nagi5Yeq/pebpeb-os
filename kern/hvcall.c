@@ -549,9 +549,10 @@ static void hvcall_print(stack_frame_t* f) {
     if (copy_from_user(esp + sizeof(va_t), sizeof(va_t), &base) != 0) {
         goto read_arg_fail;
     }
-    mutex_lock(&console_lock);
-    int result = print_buf_from_user(base, len);
-    mutex_unlock(&console_lock);
+    pts_t* pts = get_current()->pts;
+    mutex_lock(&pts->lock);
+    int result = print_buf_from_user(pts, base, len);
+    mutex_unlock(&pts->lock);
     if (result != 0) {
         goto print_fail;
     }
@@ -571,9 +572,10 @@ static void hvcall_set_color(stack_frame_t* f) {
     if (copy_from_user(esp, sizeof(int), &color) != 0) {
         goto read_arg_fail;
     }
-    mutex_lock(&console_lock);
-    int result = set_term_color(color);
-    mutex_unlock(&console_lock);
+    pts_t* pts = get_current()->pts;
+    mutex_lock(&pts->lock);
+    int result = pts_set_term_color(pts, color);
+    mutex_unlock(&pts->lock);
     if (result != 0) {
         goto set_fail;
     }
@@ -594,9 +596,10 @@ static void hvcall_set_cursor(stack_frame_t* f) {
     if (copy_from_user(esp + sizeof(va_t), sizeof(int), &col) != 0) {
         goto read_arg_fail;
     }
-    mutex_lock(&console_lock);
-    int result = set_cursor(row, col);
-    mutex_unlock(&console_lock);
+    pts_t* pts = get_current()->pts;
+    mutex_lock(&pts->lock);
+    int result = pts_set_cursor(pts, row, col);
+    mutex_unlock(&pts->lock);
     if (result != 0) {
         goto set_fail;
     }
@@ -618,9 +621,10 @@ static void hvcall_get_cursor(stack_frame_t* f) {
         goto read_arg_fail;
     }
     int row, col;
-    mutex_lock(&console_lock);
-    get_cursor(&row, &col);
-    mutex_unlock(&console_lock);
+    pts_t* pts = get_current()->pts;
+    mutex_lock(&pts->lock);
+    pts_get_cursor(pts, &row, &col);
+    mutex_unlock(&pts->lock);
     if (copy_to_user(prow, sizeof(int), &row) != 0) {
         goto bad_arg;
     }
@@ -655,29 +659,30 @@ static void hvcall_print_at(stack_frame_t* f) {
     if (copy_from_user(esp + 4 * sizeof(va_t), sizeof(int), &color) != 0) {
         goto read_arg_fail;
     }
-    mutex_lock(&console_lock);
-    get_cursor(&old_row, &old_col);
-    if (set_cursor(row, col) != 0) {
+    pts_t* pts = get_current()->pts;
+    mutex_lock(&pts->lock);
+    pts_get_cursor(pts, &old_row, &old_col);
+    if (pts_set_cursor(pts, row, col) != 0) {
         goto bad_pos;
     }
-    get_term_color(&old_color);
-    if (set_term_color(color) != 0) {
+    pts_get_term_color(pts, &old_color);
+    if (pts_set_term_color(pts, color) != 0) {
         goto bad_color;
     }
-    if (print_buf_from_user(base, len) != 0) {
+    if (print_buf_from_user(pts, base, len) != 0) {
         goto bad_print;
     }
-    set_term_color(old_color);
-    set_cursor(old_row, old_col);
-    mutex_unlock(&console_lock);
+    pts_set_term_color(pts, old_color);
+    pts_set_cursor(pts, old_row, old_col);
+    mutex_unlock(&pts->lock);
     return;
 
 bad_print:
-    set_term_color(old_color);
+    pts_set_term_color(pts, old_color);
 bad_color:
-    set_cursor(old_row, old_col);
+    pts_set_cursor(pts, old_row, old_col);
 bad_pos:
-    mutex_unlock(&console_lock);
+    mutex_unlock(&pts->lock);
     pv_die("Bad argument");
 read_arg_fail:
     pv_die("Bad argument address");

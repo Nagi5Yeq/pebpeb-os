@@ -15,6 +15,7 @@
 #include <x86/seg.h>
 
 #include <asm_instr.h>
+#include <console.h>
 #include <loader.h>
 #include <malloc.h>
 #include <mm.h>
@@ -145,6 +146,10 @@ thread_t* create_empty_process() {
     t->pending_exit = 0;
     queue_insert_head(&p->threads, &t->process_link);
     t->rb_node.parent = NULL; /* mark that the thread is not added to rbtree */
+    t->pts = get_current()->pts;
+    mutex_lock(&t->pts->lock);
+    t->pts->refcount++;
+    mutex_unlock(&t->pts->lock);
     t->process = p;
     t->eip3 = 0;
     t->esp0 = t->kernel_esp = (reg_t)&t->stack[K_STACK_SIZE];
@@ -329,6 +334,9 @@ alloc_tcb_fail:
 }
 
 void destroy_thread(thread_t* t) {
+    mutex_lock(&t->pts->lock);
+    t->pts->refcount--;
+    mutex_unlock(&t->pts->lock);
     process_t* p = t->process;
     sfree(t->stack, K_STACK_SIZE);
     sfree(t, sizeof(thread_t));
@@ -588,6 +596,7 @@ void swap_process_inplace(thread_t* newt) {
     pa_t cr3 = oldp->cr3;
     vector_t regions = oldp->regions;
     queue_t* p_threads = oldp->threads;
+    pts_t* pts = oldt->pts;
     pv_t* pv = oldp->pv;
     oldp->cr3 = newp->cr3;
     oldp->regions = newp->regions;
@@ -597,8 +606,10 @@ void swap_process_inplace(thread_t* newt) {
     newp->regions = regions;
     newp->threads = p_threads;
     newp->pv = pv;
-    newt->process = oldp;
     oldt->process = newp;
+    oldt->pts = newt->pts;
+    newt->process = oldp;
+    newt->pts = pts;
     set_cr3(newp->cr3);
     mutex_lock(&threads_lock);
     /* move oldt's rbtree node to newt */
@@ -653,6 +664,10 @@ void kill_current() {
             spl_unlock(&ready_lock, old_if);
         }
     }
+
+    mutex_lock(&current->pts->lock);
+    current->pts->refcount--;
+    mutex_unlock(&current->pts->lock);
 
     if (current->rb_node.parent != NULL) {
         remove_thread(current);

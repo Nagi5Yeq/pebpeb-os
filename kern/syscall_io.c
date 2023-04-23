@@ -41,9 +41,10 @@ void sys_print_real(stack_frame_t* f) {
     if (copy_from_user((va_t)esi + sizeof(va_t), sizeof(va_t), &base) != 0) {
         goto read_fail;
     }
-    mutex_lock(&console_lock);
-    f->eax = (reg_t)print_buf_from_user(base, len);
-    mutex_unlock(&console_lock);
+    pts_t* pts = get_current()->pts;
+    mutex_lock(&pts->lock);
+    f->eax = (reg_t)print_buf_from_user(pts, base, len);
+    mutex_unlock(&pts->lock);
     return;
 
 read_fail:
@@ -60,9 +61,10 @@ bad_length:
  */
 void sys_set_term_color_real(stack_frame_t* f) {
     reg_t esi = f->esi;
-    mutex_lock(&console_lock);
-    f->eax = (reg_t)set_term_color((int)esi);
-    mutex_unlock(&console_lock);
+    pts_t* pts = get_current()->pts;
+    mutex_lock(&pts->lock);
+    f->eax = (reg_t)pts_set_term_color(pts, (int)esi);
+    mutex_unlock(&pts->lock);
 }
 
 /**
@@ -78,9 +80,10 @@ void sys_set_cursor_pos_real(stack_frame_t* f) {
     if (copy_from_user((va_t)(esi + sizeof(va_t)), sizeof(int), &col) != 0) {
         goto read_arg_fail;
     }
-    mutex_lock(&console_lock);
-    f->eax = (reg_t)set_cursor(row, col);
-    mutex_unlock(&console_lock);
+    pts_t* pts = get_current()->pts;
+    mutex_lock(&pts->lock);
+    f->eax = (reg_t)pts_set_cursor(pts, row, col);
+    mutex_unlock(&pts->lock);
     return;
 
 read_arg_fail:
@@ -102,9 +105,10 @@ void sys_get_cursor_pos_real(stack_frame_t* f) {
         goto read_arg_fail;
     }
     int row, col;
-    mutex_lock(&console_lock);
-    get_cursor(&row, &col);
-    mutex_unlock(&console_lock);
+    pts_t* pts = get_current()->pts;
+    mutex_lock(&pts->lock);
+    pts_get_cursor(pts, &row, &col);
+    mutex_unlock(&pts->lock);
     if (copy_to_user(prow, sizeof(int), &row) != 0) {
         goto bad_arg;
     }

@@ -125,7 +125,7 @@ read_string_finished:
     return buf;
 }
 
-int print_buf_from_user(va_t addr, int len) {
+int print_buf_from_user(pts_t* pts, va_t addr, int len) {
     reg_t old_eip0 = usermem_setup();
     int i, result = 0;
     char c;
@@ -134,7 +134,7 @@ int print_buf_from_user(va_t addr, int len) {
             result = -1;
             break;
         }
-        putbyte(c);
+        pts_putbyte(pts, c);
     }
     usermem_finish(old_eip0);
     return result;

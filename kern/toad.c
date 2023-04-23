@@ -1,4 +1,5 @@
 #include <console.h>
+#include <sched.h>
 
 const char toad[] =
     "..:.         ......::..  ..^7JYYJJJJJYJJJJ??7~^:..         ^~^^:........  "
@@ -56,7 +57,15 @@ const char toad[] =
     "........:^!J5PBBBBBB";
 
 void print_toad() {
-    set_cursor(0, 0);
-    set_term_color(FGND_WHITE | BGND_BLACK);
-    putbytes(toad, sizeof(toad) - 1);
+    pts_t* pts = smalloc(sizeof(pts_t));
+    pts_init(pts);
+    get_current()->pts = pts;
+    pts->refcount++;
+
+    active_pts = pts;
+    pts->refcount++;
+
+    pts_set_cursor(pts, 0, 0);
+    pts_set_term_color(pts, FGND_WHITE | BGND_BLACK);
+    pts_putbytes(pts, toad, sizeof(toad) - 1);
 }

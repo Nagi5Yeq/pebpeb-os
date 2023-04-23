@@ -16,6 +16,7 @@
 #include <x86/seg.h>
 
 #include <common.h>
+#include <console.h>
 #include <paging.h>
 #include <pv.h>
 #include <sync.h>
@@ -148,6 +149,7 @@ typedef struct thread_s {
 
     queue_t process_link; /* in process_t's threads queue */
 
+    pts_t* pts;
     process_t* process;
 
     reg_t esp3;
