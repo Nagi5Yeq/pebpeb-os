@@ -270,13 +270,18 @@ no_idt_handler:
     pv_die("No interrupt handler installed");
 }
 
-void do_inject_irq(thread_t* t, pv_t* pv, stack_frame_t* f, int arg, va_t eip) {
+void pv_inject_interrupt(thread_t* t,
+                         pv_t* pv,
+                         stack_frame_t* f,
+                         int arg,
+                         va_t eip) {
     reg_t new_esp;
     pv_frame_t pv_f;
     pv_f.cr2 = 0;
     pv_f.error_code = arg;
     pv_f.eip = f->eip;
-    pv_f.eflags = f->eflags;
+    pv_f.eflags =
+        (pv->vif != 0 ? (f->eflags | EFL_IF) : (f->eflags & (~EFL_IF)));
     if (f->eip >= USER_MEM_START) {
         pv_switch_mode(t->process, 1);
         reg_t esp0 = pv->vesp0;
@@ -325,7 +330,7 @@ int pv_inject_irq(stack_frame_t* f, int index, int arg) {
     if (idt->eip == 0) {
         goto no_idt_handler;
     }
-    do_inject_irq(t, pv, f, arg, idt->eip);
+    pv_inject_interrupt(t, pv, f, arg, idt->eip);
     return 0;
 
 no_idt_handler:
@@ -347,7 +352,8 @@ void pv_check_pending_irq(stack_frame_t* f) {
             if (vidt->irq[i].eip == 0) {
                 goto no_idt_handler;
             }
-            do_inject_irq(t, pv, f, vidt->pending_irq[i].arg, vidt->irq[i].eip);
+            pv_inject_interrupt(t, pv, f, vidt->pending_irq[i].arg,
+                                vidt->irq[i].eip);
             vidt->pending_irq[i].pending = 0;
             restore_if(old_if);
             return;

@@ -53,7 +53,7 @@ static void hvcall_refpd(int ref);
 static void hvcall_loadpd(stack_frame_t* f);
 
 // 0: processed
-int pv_handle_syscall(stack_frame_t* f, int index) {
+int pv_handle_syscall(int index, stack_frame_t* f) {
     thread_t* t = get_current();
     pv_t* pv = t->process->pv;
     if (pv == NULL) {
@@ -70,7 +70,7 @@ int pv_handle_syscall(stack_frame_t* f, int index) {
                 goto no_idt_handler;
             }
         }
-        do_inject_irq(t, pv, f, 0, idt->eip);
+        pv_inject_interrupt(t, pv, f, 0, idt->eip);
         return 0;
     }
     pv_die("Syscall is not allowed for PV kernels");
@@ -456,8 +456,9 @@ static void hvcall_adjustpg(stack_frame_t* f) {
             if (pt_pa == BAD_PA) {
                 goto alloc_pt_fail;
             }
-            *pde = (pt_pa | new_pde);
             memset((void*)map_phys_page(pt_pa, NULL), 0, PAGE_SIZE);
+            map_phys_page(pv_pd->cr3, NULL);
+            *pde = (pt_pa | new_pde);
         }
         page_directory_t* user_pd =
             (page_directory_t*)map_phys_page(pv_pd->user_cr3, NULL);
@@ -470,8 +471,9 @@ static void hvcall_adjustpg(stack_frame_t* f) {
             if (user_pt_pa == BAD_PA) {
                 goto alloc_pt_fail;
             }
-            *user_pde = (user_pt_pa | new_pde);
             memset((void*)map_phys_page(user_pt_pa, NULL), 0, PAGE_SIZE);
+            map_phys_page(pv_pd->user_cr3, NULL);
+            *user_pde = (user_pt_pa | new_pde);
         }
         pa_t old_pt_pa = get_page_table(old_pde);
         if (old_pt_pa >= mem_limit) {
@@ -519,7 +521,7 @@ static void hvcall_adjustpg(stack_frame_t* f) {
         (*user_pt)[get_pt_index(addr)] = user_pte;
     }
     restore_if(old_if);
-    invlpg(addr);
+    invlpg(addr + USER_MEM_START);
     return;
 
 bad_pt:
@@ -541,11 +543,11 @@ static void hvcall_print(stack_frame_t* f) {
     if (copy_from_user(esp, sizeof(int), &len) != 0) {
         goto read_arg_fail;
     }
-    if (copy_from_user(esp + sizeof(va_t), sizeof(va_t), &base) != 0) {
-        goto read_arg_fail;
-    }
     if (len < 0) {
         goto bad_length;
+    }
+    if (copy_from_user(esp + sizeof(va_t), sizeof(va_t), &base) != 0) {
+        goto read_arg_fail;
     }
     mutex_lock(&console_lock);
     int result = print_buf_from_user(base, len);

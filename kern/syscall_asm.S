@@ -26,8 +26,8 @@ sys_\name:
     mov $SEGSEL_KERNEL_FS, %eax
     mov %ax, %fs
     cld
-    push $\index
     push %esp
+    push $\index
     call pv_handle_syscall
     add $0x8, %esp
     test %eax, %eax
@@ -98,8 +98,8 @@ sys_\name:
     mov $SEGSEL_KERNEL_FS, %eax
     mov %ax, %fs
     cld
-    push $\index
     push %esp
+    push $\index
     call pv_handle_syscall
     add $0x8, %esp
     jmp return_to_user /* check pending exit before iret */
