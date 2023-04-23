@@ -49,7 +49,7 @@ PERCPU_GETSET mapped_phys_page_pte 0x10
 .type return_to_user, %function
 return_to_user:
     push %esp
-    call check_pending_exit
+    call check_pending_signals
     add $0x4, %esp
     pop %gs /* restore from stack_frame_t structure */
     pop %fs

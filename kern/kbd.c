@@ -19,6 +19,7 @@
 #include <interrupt.h>
 #include <kbd.h>
 #include <paging.h>
+#include <pv.h>
 #include <sync.h>
 #include <usermem.h>
 
@@ -30,7 +31,7 @@ typedef struct kbd_request_s {
 
 /** size of scancode ring buffer, a big buffer enough for someone pressing
  * keyboard fast */
-#define SC_RING_SIZE PAGE_SIZE
+#define KH_RING_SIZE PAGE_SIZE
 /** size of character ring buffer, a big buffer enough for someone pressing
  * keyboard fast */
 #define CHR_RING_SIZE PAGE_SIZE
@@ -49,15 +50,13 @@ static cv_t kbd_request_cv = CV_INIT;
 static mutex_t input_lock = MUTEX_INIT;
 /** signal for new scancode input */
 static cv_t input_cv = CV_INIT;
-/** need pic acknowlege */
-static int need_ack = 0;
 
-/** scancode ring buffer */
-static unsigned char sc_ring[SC_RING_SIZE];
-/** read pointer of scancode ring buffer */
-static int sc_r_pos = 0;
-/** write pointer of scancode ring buffer */
-static int sc_w_pos = 0;
+/** augchar buffer */
+static unsigned char kh_ring[KH_RING_SIZE];
+/** read pointer of augchar ring buffer */
+static int kh_r_pos = 0;
+/** write pointer of augchar ring buffer */
+static int kh_w_pos = 0;
 
 /** character ring buffer */
 static char chr_ring[CHR_RING_SIZE];
@@ -71,14 +70,17 @@ static int chr_w_pos = 0;
  */
 void kbd_handler_real(stack_frame_t* f) {
     unsigned char sc = inb(KEYBOARD_PORT);
-    int next_w_pos = (sc_w_pos + 1) % SC_RING_SIZE;
-    if (next_w_pos != sc_r_pos) {
-        sc_ring[sc_w_pos] = sc;
-        sc_w_pos = next_w_pos;
-        pic_acknowledge(KBD_IRQ);
-    } else {
-        /* let processing thread ack after processing scancode */
-        need_ack = 1;
+    pic_acknowledge(KBD_IRQ);
+    kh_type kh = process_scancode(sc);
+    if (pv_inject_irq(f, KEY_IDT_ENTRY, kh) == 0) {
+        return;
+    }
+    if (KH_HASDATA(kh) && KH_ISMAKE(kh)) {
+        int next_w_pos = (kh_w_pos + 1) % KH_RING_SIZE;
+        if (next_w_pos != kh_r_pos) {
+            kh_ring[kh_w_pos] = kh;
+            kh_w_pos = next_w_pos;
+        }
     }
     cv_signal(&input_cv);
 }
@@ -185,14 +187,21 @@ static int flush_line(int len, va_t buf) {
     if (size > len) {
         size = len;
     }
-    for (i = 0; i < size; i++) {
-        if (copy_to_user(buf + i, 1,
-                         &chr_ring[(chr_r_pos + i) % CHR_RING_SIZE]) != 0) {
-            /* failed to flush, do not discard anything */
+    int end_pos = (chr_r_pos + size) % CHR_RING_SIZE;
+    if (end_pos > chr_r_pos) {
+        if (copy_to_user(buf, size, &chr_ring[chr_r_pos]) != 0) {
+            return -1;
+        }
+    } else {
+        int size_1 = (CHR_RING_SIZE - chr_r_pos);
+        if (copy_to_user(buf, size_1, &chr_ring[chr_r_pos]) != 0) {
+            return -1;
+        }
+        if (copy_to_user(buf + size_1, end_pos, &chr_ring[0]) != 0) {
             return -1;
         }
     }
-    chr_r_pos = (chr_r_pos + i) % CHR_RING_SIZE;
+    chr_r_pos = end_pos;
     return size;
 }
 
@@ -200,19 +209,12 @@ static int sc_process() {
     while (1) {
         /* wait for more scancode */
         mutex_lock(&input_lock);
-        while (sc_r_pos == sc_w_pos) {
+        while (kh_r_pos == kh_w_pos) {
             cv_wait(&input_cv, &input_lock);
         }
-        int sc = sc_ring[sc_r_pos];
-        sc_r_pos = (sc_r_pos + 1) % SC_RING_SIZE;
+        kh_type kh = kh_ring[kh_r_pos];
+        kh_r_pos = (kh_r_pos + 1) % KH_RING_SIZE;
         mutex_unlock(&input_lock);
-        if (need_ack == 1) {
-            need_ack = 0;
-            pic_acknowledge(KBD_IRQ);
-        }
-        kh_type kh = process_scancode(sc);
-        if (KH_HASDATA(kh) && KH_ISMAKE(kh)) {
-            return KH_GETCHAR(kh);
-        }
+        return KH_GETCHAR(kh);
     }
 }

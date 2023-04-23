@@ -29,7 +29,7 @@ heap_t timers;
 /* we want a 2ms thread switch but since sometimes interrupts are disabled, we
  * set a higher rate to compensate this
  */
-#define TIMER_FREQ 1
+#define TIMER_FREQ 1000
 
 void timer_init() {
     int counter = TIMER_RATE / TIMER_FREQ;
@@ -64,7 +64,7 @@ void timer_handler_real(stack_frame_t* f) {
     pic_acknowledge(TIMER_IRQ);
     ticks++;
     check_timers();
-    pv_inject_interrupt(f, TIMER_IDT_ENTRY, 0);
+    pv_inject_irq(f, TIMER_IDT_ENTRY, 0);
     int old_if = spl_lock(&ready_lock);
     thread_t* current = get_current();
     if (current != get_idle()) {

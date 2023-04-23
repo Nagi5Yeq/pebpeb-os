@@ -19,6 +19,7 @@
 #include <malloc.h>
 #include <mm.h>
 #include <paging.h>
+#include <pv.h>
 #include <sched.h>
 #include <sync.h>
 
@@ -748,13 +749,15 @@ void cleanup_dead_thread(thread_t* t) {
  * @brief check if a task_vanish is pending and if so, do vanish
  * @param f saved regs
  */
-void check_pending_exit(stack_frame_t* f) {
+void check_pending_signals(stack_frame_t* f) {
     /* only vanish before returning to userspace, otherwise some kernel
      * structure may be jammed
      */
-    if (get_current()->pending_exit != 0 && f->cs == SEGSEL_USER_CS) {
+    thread_t* t = get_current();
+    if (t->pending_exit != 0 && f->cs == SEGSEL_USER_CS) {
         kill_current();
     }
+    pv_check_pending_irq(f);
 }
 
 thread_t* find_thread(int tid) {

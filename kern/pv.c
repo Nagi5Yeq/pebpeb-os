@@ -204,7 +204,7 @@ void pv_switch_mode(process_t* p, int kernelmode) {
     set_cr3(target_cr3);
 }
 
-void select_pv_pd(process_t* p, pv_pd_t* pv_pd) {
+void pv_select_pd(process_t* p, pv_pd_t* pv_pd) {
     pv_t* pv = p->pv;
     pv_pd_t* old_pv_pd = pv->active_shadow_pd;
     pv->active_shadow_pd = pv_pd;
@@ -270,16 +270,11 @@ no_idt_handler:
     pv_die("No interrupt handler installed");
 }
 
-int pv_inject_interrupt(stack_frame_t* f, int index, int arg) {
-    thread_t* t = get_current();
-    pv_t* pv = t->process->pv;
-    if (pv == NULL || (pv->vif & EFL_IF) == 0 || f->cs != SEGSEL_PV_CS) {
-        return -1;
-    }
-    pv_idt_entry_t* idt = pv_classify_interrupt(pv, index);
-    if (idt == NULL) {
-        goto no_idt_handler;
-    }
+static inline void do_inject_irq(thread_t* t,
+                                 pv_t* pv,
+                                 stack_frame_t* f,
+                                 int arg,
+                                 va_t eip) {
     reg_t new_esp;
     pv_frame_t pv_f;
     pv_f.cr2 = 0;
@@ -309,13 +304,62 @@ int pv_inject_interrupt(stack_frame_t* f, int index, int arg) {
             goto push_frame_fail;
         }
     }
-    f->eip = idt->eip;
+    pv_mask_interrupt(pv);
+    f->eip = eip;
     f->esp = new_esp;
-    return 0;
+    return;
 
 push_frame_fail:
     pv_die("Error when pushing interrupt frame to stack");
+}
+
+int pv_inject_irq(stack_frame_t* f, int index, int arg) {
+    thread_t* t = get_current();
+    pv_t* pv = t->process->pv;
+    if (pv == NULL) {
+        return -1;
+    }
+    if (f->cs != SEGSEL_PV_CS || (pv->vif & EFL_IF) == 0) {
+        pv_irq_t* irq = &pv->vidt.pending_irq[index - PV_IRQ_START];
+        irq->pending = 1;
+        irq->arg = arg;
+        return 0;
+    }
+    pv_idt_entry_t* idt = &pv->vidt.irq[index - PV_IRQ_START];
+    if (idt->eip == 0) {
+        goto no_idt_handler;
+    }
+    do_inject_irq(t, pv, f, arg, idt->eip);
+    return 0;
+
 no_idt_handler:
     pv_die("No interrupt handler installed");
     return -1;
+}
+
+void pv_check_pending_irq(stack_frame_t* f) {
+    thread_t* t = get_current();
+    pv_t* pv = t->process->pv;
+    if (pv == NULL || f->cs != SEGSEL_PV_CS || (pv->vif & EFL_IF) == 0) {
+        return;
+    }
+    pv_idt_t* vidt = &pv->vidt;
+    int old_if = save_clear_if();
+    int i;
+    for (i = 0; i < (PV_IRQ_END - PV_IRQ_START); i++) {
+        if (vidt->pending_irq[i].pending != 0) {
+            if (vidt->irq[i].eip == 0) {
+                goto no_idt_handler;
+            }
+            do_inject_irq(t, pv, f, vidt->pending_irq[i].arg, vidt->irq[i].eip);
+            vidt->pending_irq[i].pending = 0;
+            restore_if(old_if);
+            return;
+        }
+    }
+    restore_if(old_if);
+    return;
+
+no_idt_handler:
+    pv_die("No interrupt handler installed");
 }

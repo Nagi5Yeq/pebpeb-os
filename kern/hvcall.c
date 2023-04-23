@@ -36,6 +36,7 @@
 
 #define HV_REFPD_OP HV_RESERVED_0
 #define HV_UNREFPD_OP HV_RESERVED_1
+#define HV_LOADPD_OP HV_RESERVED_2
 
 static void hvcall_exit(stack_frame_t* f);
 static void hvcall_iret(stack_frame_t* f);
@@ -49,6 +50,7 @@ static void hvcall_get_cursor(stack_frame_t* f);
 static void hvcall_print_at(stack_frame_t* f);
 
 static void hvcall_refpd(int ref);
+static void hvcall_loadpd(stack_frame_t* f);
 
 // 0: not pv, 1: processed
 int handle_pv_syscall(stack_frame_t* f, int index) {
@@ -113,6 +115,9 @@ void sys_hvcall_real(stack_frame_t* f) {
             break;
         case HV_UNREFPD_OP:
             hvcall_refpd(0);
+            break;
+        case HV_LOADPD_OP:
+            hvcall_loadpd(f);
             break;
         default:
             pv_die("Bad hvcall number");
@@ -223,7 +228,7 @@ static void hvcall_setpd(stack_frame_t* f) {
         goto alloc_pd_fail;
     }
     queue_insert_head(&pv->shadow_pds, &pv_pd->pv_link);
-    select_pv_pd(t->process, pv_pd);
+    pv_select_pd(t->process, pv_pd);
     return;
 
 alloc_pd_fail:
@@ -662,13 +667,38 @@ read_arg_fail:
 }
 
 static void hvcall_refpd(int ref) {
-    pv_t* pv = get_current()->process->pv;
+    pv_pd_t* pv_pd = get_current()->process->pv->active_shadow_pd;
     if (ref == 1) {
-        pv->active_shadow_pd->refcount++;
+        pv_pd->refcount++;
     } else {
-        pv->active_shadow_pd->refcount--;
-        if (pv->active_shadow_pd->refcount <= 0) {
+        pv_pd->refcount--;
+        if (pv_pd->refcount <= 0) {
             pv_die("Page table destroyed by kerenl");
         }
     }
+}
+
+static void hvcall_loadpd(stack_frame_t* f) {
+    reg_t esp = f->esp;
+    pa_t pd;
+    if (copy_from_user(esp, sizeof(pa_t), &pd) != 0) {
+        goto read_arg_fail;
+    }
+    process_t* p = get_current()->process;
+    pv_t* pv = p->pv;
+    queue_t* node = pv->shadow_pds;
+    queue_t* end = node;
+    do {
+        pv_pd_t* pv_pd = queue_data(node, pv_pd_t, pv_link);
+        if (pv_pd->guest_pd == pd + USER_MEM_START) {
+            pv_select_pd(p, pv_pd);
+            return;
+        }
+        node = node->next;
+        sfree(pv_pd, sizeof(pv_pd_t));
+    } while (node != end);
+    pv_die("Loading a nonexist page table");
+
+read_arg_fail:
+    pv_die("Bad argument address");
 }

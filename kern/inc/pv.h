@@ -46,6 +46,11 @@ typedef struct pv_idt_entry_s {
     int desc;
 } pv_idt_entry_t;
 
+typedef struct pv_irq_s {
+    int pending;
+    int arg;
+} pv_irq_t;
+
 #define PV_FAULT_START 0
 #define PV_FAULT_END 20
 #define PV_IRQ_START 32
@@ -58,6 +63,7 @@ typedef struct pv_idt_entry_s {
 typedef struct pv_idt_s {
     pv_idt_entry_t fault[PV_FAULT_END - PV_FAULT_START];
     pv_idt_entry_t irq[PV_IRQ_END - PV_IRQ_START];
+    pv_irq_t pending_irq[PV_IRQ_END - PV_IRQ_START];
     pv_idt_entry_t syscall_1[PV_SYSCALL_1_END - PV_SYSCALL_1_START];
     pv_idt_entry_t syscall_2[PV_SYSCALL_2_END - PV_SYSCALL_2_START];
 } pv_idt_t;
@@ -114,13 +120,15 @@ void pv_die(char* reason);
 
 void pv_switch_mode(process_t* p, int kernelmode);
 
-void select_pv_pd(process_t* p, pv_pd_t* pv_pd);
+void pv_select_pd(process_t* p, pv_pd_t* pv_pd);
 
 void pv_handle_fault(ureg_t* frame, thread_t* t);
 
 struct stack_frame_s;
 typedef struct stack_frame_s stack_frame_t;
-int pv_inject_interrupt(stack_frame_t* f, int index, int arg);
+int pv_inject_irq(stack_frame_t* f, int index, int arg);
+
+void pv_check_pending_irq(stack_frame_t* f);
 
 typedef struct pv_frame_s {
     reg_t cr2;
