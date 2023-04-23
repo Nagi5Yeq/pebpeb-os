@@ -16,8 +16,7 @@
 #include <x86/eflags.h>
 #include <x86/seg.h>
 
-#include <console.h>
-#include <kbd.h>
+#include <pts.h>
 #include <malloc.h>
 #include <mm.h>
 #include <paging.h>

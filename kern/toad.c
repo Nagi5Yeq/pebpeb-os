@@ -1,4 +1,4 @@
-#include <console.h>
+#include <pts.h>
 #include <sched.h>
 
 const char toad[] =

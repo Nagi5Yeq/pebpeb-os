@@ -16,7 +16,7 @@
 #include <x86/seg.h>
 
 #include <common.h>
-#include <console.h>
+#include <pts.h>
 #include <paging.h>
 #include <pv.h>
 #include <sync.h>

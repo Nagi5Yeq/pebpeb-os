@@ -13,7 +13,7 @@
 #include <x86/asm.h>
 #include <x86/seg.h>
 
-#include <console.h>
+#include <pts.h>
 #include <mm.h>
 #include <paging.h>
 #include <sched.h>

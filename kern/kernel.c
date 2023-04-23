@@ -24,7 +24,7 @@
 
 #include <assert.h>
 #include <common.h>
-#include <console.h>
+#include <pts.h>
 #include <interrupt.h>
 #include <mm.h>
 #include <paging.h>

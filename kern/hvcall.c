@@ -24,7 +24,7 @@
 
 #include <asm_instr.h>
 #include <assert.h>
-#include <console.h>
+#include <pts.h>
 #include <loader.h>
 #include <malloc.h>
 #include <mm.h>

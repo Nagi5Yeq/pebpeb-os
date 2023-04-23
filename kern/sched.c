@@ -15,7 +15,7 @@
 #include <x86/seg.h>
 
 #include <asm_instr.h>
-#include <console.h>
+#include <pts.h>
 #include <loader.h>
 #include <malloc.h>
 #include <mm.h>
