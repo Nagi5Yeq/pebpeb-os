@@ -32,6 +32,8 @@
 #include <sched.h>
 #include <timer.h>
 
+void print_toad();
+
 /**
  * @brief entry for a cpu core
  * @param cpuid cpuid
@@ -64,7 +66,7 @@ int kernel_main(mbinfo_t* mbinfo, int argc, char** argv, char** envp) {
     mm_init();
     timer_init();
     pv_init();
-    clear_console();
+    print_toad();
 
     const char* init_args[] = {INIT_NAME};
     thread_t* init = create_process(INIT_PID, INIT_NAME, 1, init_args);

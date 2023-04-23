@@ -165,7 +165,7 @@ KERNEL_OBJS = console.o kernel.o loader.o malloc_wrappers.o sync_asm.o \
 	mm.o asm_instr.o sched.o sched_asm.o syscall_asm.o interrupt.o \
 	paging.o timer.o interrupt_asm.o usermem.o syscall_process.o \
 	syscall_memory.o syscall_thread.o common.o sync.o syscall_io.o \
-	usermem_asm.o syscall_misc.o kbd.o pv.o hvcall.o
+	usermem_asm.o syscall_misc.o kbd.o pv.o hvcall.o toad.o
 
 ###########################################################################
 # WARNING: Do not put **test** programs into the REQPROGS variables.  Your

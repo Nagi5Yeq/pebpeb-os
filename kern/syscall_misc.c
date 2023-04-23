@@ -150,7 +150,7 @@ static reg_t read_dot_file(va_t buf, int count, int offset) {
         i++;
     }
     /* write extra null byte */
-    if (left != 0) {
+    if (left != 0 && cur == offset) {
         char nul = '\0';
         if (copy_to_user((va_t)buf + written, 1, &nul) != 0) {
             return (reg_t)-1;
