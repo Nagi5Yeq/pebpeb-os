@@ -1,3 +1,5 @@
+#include <simics.h>
+#include <stdio.h>
 #include <string.h>
 
 #include <hvcall.h>
@@ -10,6 +12,7 @@
 #include <paging.h>
 #include <pv.h>
 #include <sched.h>
+#include <usermem.h>
 
 static int create_boot_pd(process_t* p, pa_t bootmem, int n_pages);
 
@@ -20,8 +23,8 @@ void pv_init() {
     /* copy ds's flags so we do not need to create one */
     uint64_t ds_flags = (gdt[SEGSEL_USER_DS_IDX] & GDT_FLAG_MASK);
     uint64_t fs_flags = (ds_flags & (~GDT_G_BIT));
-    uint64_t base = USER_MEM_START;
-    uint64_t limit = (PV_VM_LIMIT / PAGE_SIZE) - 1;
+    va_t base = USER_MEM_START;
+    va_size_t limit = (PV_VM_LIMIT / PAGE_SIZE) - 1;
     gdt[SEGSEL_PV_CS_IDX] = create_segsel(base, limit, cs_flags);
     gdt[SEGSEL_PV_DS_IDX] = create_segsel(base, limit, ds_flags);
     gdt[SEGSEL_PV_FS_IDX] = create_segsel(base, limit, fs_flags);
@@ -57,11 +60,12 @@ static int create_boot_pd(process_t* p, pa_t bootmem, int n_pages) {
         }
         int old_if = save_clear_if();
         page_table_t* pt = (page_table_t*)map_phys_page(pt_pa, NULL);
-        /* do not set P bit for ZFOD */
-        (*pt)[pt_index] = make_pte(bootmem + offset, 0, PTE_USER, PTE_RW, 0);
+        (*pt)[pt_index] =
+            make_pte(bootmem + offset, 0, PTE_USER, PTE_RW, PTE_PRESENT);
         restore_if(old_if);
         invlpg(m_start + offset);
     } while (++i < n_pages);
+    memset((char*)USER_MEM_START, 0, n_pages * PAGE_SIZE);
     return 0;
 
 add_pt_fail:
@@ -88,16 +92,20 @@ thread_t* create_pv_process(thread_t* t,
     if (bootmem == BAD_PA) {
         goto alloc_bootmem_fail;
     }
+    pv->n_pages = n_bootmem_pages;
+    pv->mem_base = bootmem;
     if (add_region(p, USER_MEM_START, n_bootmem_pages, bootmem, 1) != 0) {
         goto alloc_region_fail;
     }
-    if (create_boot_pd(p, bootmem, n_bootmem_pages) != 0) {
-        goto create_boot_pd_fail;
-    }
+
     /* temporarily use new process's cr3 to load elf */
     pa_t old_cr3 = get_current()->process->cr3;
     get_current()->process->cr3 = p->cr3;
     set_cr3(p->cr3);
+
+    if (create_boot_pd(p, bootmem, n_bootmem_pages) != 0) {
+        goto create_boot_pd_fail;
+    }
 
     file_t* f = find_file(exe);
 
@@ -152,9 +160,9 @@ thread_t* create_pv_process(thread_t* t,
     return t;
 
 load_elf_fail:
+create_boot_pd_fail:
     get_current()->process->cr3 = old_cr3;
     set_cr3(old_cr3);
-create_boot_pd_fail:
     vector_pop(&p->regions);
 alloc_region_fail:
     free_user_pages(bootmem, n_bootmem_pages);
@@ -169,14 +177,145 @@ void destroy_pv(pv_t* pv) {
         queue_t* node = pv->shadow_pds;
         queue_t* end = node;
         do {
-            pv_pd_t* shadow_pd = queue_data(node, pv_pd_t, pv_link);
-            destroy_pd(shadow_pd->cr3);
-            if (shadow_pd->user_cr3 != shadow_pd->cr3) {
-                destroy_pd(shadow_pd->user_cr3);
+            pv_pd_t* pv_pd = queue_data(node, pv_pd_t, pv_link);
+            destroy_pd(pv_pd->cr3);
+            if (pv_pd->user_cr3 != pv_pd->cr3) {
+                destroy_pd(pv_pd->user_cr3);
             }
             node = node->next;
-            sfree(shadow_pd, sizeof(pv_pd_t));
+            sfree(pv_pd, sizeof(pv_pd_t));
         } while (node != end);
     }
     sfree(pv, sizeof(pv_t));
+}
+
+void pv_die(char* reason) {
+    thread_t* t = get_current();
+    sim_printf("PV kernel %d killed: %s", t->rb_node.key, reason);
+    printf("PV kernel %d killed: %s\n", t->rb_node.key, reason);
+    t->process->exit_value = GUEST_CRASH_STATUS;
+    kill_current();
+}
+
+void pv_switch_mode(process_t* p, int kernelmode) {
+    pv_pd_t* pv_pd = p->pv->active_shadow_pd;
+    pa_t target_cr3 = (kernelmode != 0 ? pv_pd->cr3 : pv_pd->user_cr3);
+    p->cr3 = target_cr3;
+    set_cr3(target_cr3);
+}
+
+void select_pv_pd(process_t* p, pv_pd_t* pv_pd) {
+    pv_t* pv = p->pv;
+    pv_pd_t* old_pv_pd = pv->active_shadow_pd;
+    pv->active_shadow_pd = pv_pd;
+    pv_pd->refcount++;
+    p->cr3 = pv_pd->cr3;
+    set_cr3(p->cr3);
+    old_pv_pd->refcount--;
+    if (old_pv_pd->refcount == 0) {
+        queue_detach(&pv->shadow_pds, &old_pv_pd->pv_link);
+        destroy_pd(old_pv_pd->cr3);
+        if (old_pv_pd->user_cr3 != old_pv_pd->cr3) {
+            destroy_pd(old_pv_pd->user_cr3);
+        }
+        sfree(old_pv_pd, sizeof(pv_pd_t));
+    }
+}
+
+void pv_handle_fault(ureg_t* frame, thread_t* t) {
+    pv_t* pv = t->process->pv;
+    pv_idt_entry_t* idt = pv_classify_interrupt(pv, frame->cause);
+    if (idt->eip == 0) {
+        goto no_idt_handler;
+    }
+    reg_t new_esp;
+    pv_frame_t pv_f;
+    pv_f.cr2 =
+        (frame->cause == SWEXN_CAUSE_PAGEFAULT ? frame->cr2 - USER_MEM_START
+                                               : 0);
+    pv_f.error_code = frame->error_code;
+    pv_f.eip = frame->eip;
+    pv_f.eflags =
+        (pv->vif != 0 ? (frame->eflags | EFL_IF) : (frame->eflags & (~EFL_IF)));
+    if (frame->eip >= USER_MEM_START) {
+        pv_switch_mode(t->process, 1);
+        reg_t esp0 = pv->vesp0;
+        esp0 = (esp0 & (~(sizeof(va_t) - 1)));
+        reg_t esp = frame->esp;
+        esp0 -= sizeof(reg_t);
+        if (copy_to_user(esp0, sizeof(reg_t), &esp) != 0) {
+            goto push_frame_fail;
+        }
+        pv_f.vcs = GUEST_INTERRUPT_UMODE;
+        esp0 -= sizeof(pv_frame_t);
+        if (copy_to_user(esp0, sizeof(pv_frame_t), &pv_f) != 0) {
+            goto push_frame_fail;
+        }
+        new_esp = esp0;
+    } else {
+        new_esp = frame->esp;
+        pv_f.vcs = GUEST_INTERRUPT_KMODE;
+        new_esp -= sizeof(pv_frame_t);
+        if (copy_to_user(new_esp, sizeof(pv_frame_t), &pv_f) != 0) {
+            goto push_frame_fail;
+        }
+    }
+    frame->eip = idt->eip;
+    frame->esp = new_esp;
+    return;
+
+push_frame_fail:
+    pv_die("Error when pushing interrupt frame to stack");
+no_idt_handler:
+    pv_die("No interrupt handler installed");
+}
+
+int pv_inject_interrupt(stack_frame_t* f, int index, int arg) {
+    thread_t* t = get_current();
+    pv_t* pv = t->process->pv;
+    if (pv == NULL || (pv->vif & EFL_IF) == 0 || f->cs != SEGSEL_PV_CS) {
+        return -1;
+    }
+    pv_idt_entry_t* idt = pv_classify_interrupt(pv, index);
+    if (idt == NULL) {
+        goto no_idt_handler;
+    }
+    reg_t new_esp;
+    pv_frame_t pv_f;
+    pv_f.cr2 = 0;
+    pv_f.error_code = arg;
+    pv_f.eip = f->eip;
+    pv_f.eflags = f->eflags;
+    if (f->eip >= USER_MEM_START) {
+        pv_switch_mode(t->process, 1);
+        reg_t esp0 = pv->vesp0;
+        esp0 = (esp0 & (~(sizeof(va_t) - 1)));
+        reg_t esp = f->esp;
+        esp0 -= sizeof(reg_t);
+        if (copy_to_user(esp0, sizeof(reg_t), &esp) != 0) {
+            goto push_frame_fail;
+        }
+        pv_f.vcs = GUEST_INTERRUPT_UMODE;
+        esp0 -= sizeof(pv_frame_t);
+        if (copy_to_user(esp0, sizeof(pv_frame_t), &pv_f) != 0) {
+            goto push_frame_fail;
+        }
+        new_esp = esp0;
+    } else {
+        new_esp = f->esp;
+        pv_f.vcs = GUEST_INTERRUPT_KMODE;
+        new_esp -= sizeof(pv_frame_t);
+        if (copy_to_user(new_esp, sizeof(pv_frame_t), &pv_f) != 0) {
+            goto push_frame_fail;
+        }
+    }
+    f->eip = idt->eip;
+    f->esp = new_esp;
+    return 0;
+
+push_frame_fail:
+    pv_die("Error when pushing interrupt frame to stack");
+no_idt_handler:
+    pv_die("No interrupt handler installed");
+    return -1;
 }

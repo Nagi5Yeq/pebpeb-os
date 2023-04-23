@@ -69,7 +69,7 @@ static int chr_w_pos = 0;
 /**
  * @brief keyboard inturrupt handler
  */
-void kbd_handler_real() {
+void kbd_handler_real(stack_frame_t* f) {
     unsigned char sc = inb(KEYBOARD_PORT);
     int next_w_pos = (sc_w_pos + 1) % SC_RING_SIZE;
     if (next_w_pos != sc_r_pos) {

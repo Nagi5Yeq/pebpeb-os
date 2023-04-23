@@ -40,14 +40,6 @@ void sys_misbehave_real(stack_frame_t* f) {
 }
 
 /**
- * @brief all other syscalls handler
- * @param f saved regs
- */
-void sys_enosys_real(stack_frame_t* f) {
-    f->eax = (reg_t)-1;
-}
-
-/**
  * @brief halt() syscall handler
  * @param f saved regs
  */

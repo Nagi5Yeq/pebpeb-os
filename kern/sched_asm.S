@@ -13,8 +13,13 @@
 .global set_fs
 .type set_fs, %function
 set_fs:
-    push 0x4(%esp)
-    pop %fs
+    mov 0x4(%esp), %fs
+    ret
+
+.global set_gs
+.type set_gs, %function
+set_gs:
+    mov 0x4(%esp), %gs
     ret
 
 .macro PERCPU_GETSET name offset

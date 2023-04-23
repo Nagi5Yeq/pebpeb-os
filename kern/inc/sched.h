@@ -231,6 +231,18 @@ int add_region(process_t* p, va_t vaddr, int n_pages, pa_t pa, int is_rw);
  */
 pa_t find_or_create_pt(process_t* p, va_t vaddr);
 
+/**
+ * @brief set fs
+ * @param fs fs
+ */
+void set_fs(reg_t fs);
+
+/**
+ * @brief set gs
+ * @param gs gs
+ */
+void set_gs(reg_t gs);
+
 /** CPU specific varibles */
 typedef struct percpu_s {
     thread_t* current;           /* current running thread */

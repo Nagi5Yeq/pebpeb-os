@@ -15,7 +15,7 @@
 default_handler:
     iret
 
-.macro  FAULT_HANDLER_ERR name cause
+.macro FAULT_HANDLER_ERR name cause
 .global \name\()_handler
 .type \name\()_handler, %function
 \name\()_handler:
@@ -45,11 +45,11 @@ default_handler:
     iret
 .endm
 
-.macro  FAULT_HANDLER_NOERR name cause
+.macro FAULT_HANDLER_NOERR name cause
 .global \name\()_handler
 .type \name\()_handler, %function
 \name\()_handler:
-    sub $0x4, %esp /* dummy error code */
+    push $0 /* dummy error code */
     pusha
     push %gs
     push %fs
@@ -91,6 +91,7 @@ FAULT_HANDLER_ERR np 0xb
 FAULT_HANDLER_ERR ss 0xc
 FAULT_HANDLER_ERR gp 0xd
 FAULT_HANDLER_ERR pf 0xe
+FAULT_HANDLER_ERR fault_15 0xf
 FAULT_HANDLER_NOERR mf 0x10
 FAULT_HANDLER_ERR ac 0x11
 FAULT_HANDLER_NOERR mc 0x12
@@ -110,7 +111,9 @@ timer_handler:
     mov $SEGSEL_KERNEL_FS, %eax
     mov %ax, %fs
     cld
+    push %esp
     call timer_handler_real
+    add $0x4, %esp
     jmp return_to_user /* check pending exit before iret */
 
 
@@ -128,5 +131,7 @@ kbd_handler:
     mov $SEGSEL_KERNEL_FS, %eax
     mov %ax, %fs
     cld
+    push %esp
     call kbd_handler_real
+    add $0x4, %esp
     jmp return_to_user /* check pending exit before iret */

@@ -25,6 +25,7 @@
 #include <interrupt.h>
 #include <mm.h>
 #include <paging.h>
+#include <pv.h>
 #include <sched.h>
 #include <sync.h>
 #include <timer.h>
@@ -54,6 +55,8 @@
 #define IDT_EIP_HI_MASK 0xffff0000
 /** EIP's low part's bits */
 #define IDT_EIP_LO_MASK 0x0000ffff
+
+#define IDT_FAULT_15 15
 
 /**
  * @brief an idt entry
@@ -138,6 +141,10 @@ int gp_handler();
  * @brief PF handler entry
  */
 int pf_handler();
+/**
+ * @brief Fault 15 entry
+ */
+int fault_15_handler();
 /**
  * @brief MF handler entry
  */
@@ -270,10 +277,38 @@ void sys_readfile();
  */
 void sys_swexn();
 
+void sys_67();
+void sys_86();
+void sys_97();
+void sys_99();
+void sys_100();
+void sys_101();
+void sys_102();
+void sys_103();
+void sys_104();
+void sys_105();
+void sys_106();
+void sys_107();
+void sys_108();
+void sys_109();
+void sys_110();
+void sys_111();
+void sys_112();
+void sys_113();
+void sys_114();
+void sys_115();
+void sys_128();
+void sys_129();
+void sys_130();
+void sys_131();
+void sys_132();
+void sys_133();
+void sys_134();
+
 /**
  * @brief all other syscall entries
  */
-void sys_enosys();
+void sys_nonexist();
 
 void sys_hvcall();
 
@@ -303,6 +338,8 @@ void idt_init() {
     idt[IDT_SS] = make_idt((va_t)ss_handler, IDT_TYPE_I32, IDT_DPL_KERNEL);
     idt[IDT_GP] = make_idt((va_t)gp_handler, IDT_TYPE_I32, IDT_DPL_KERNEL);
     idt[IDT_PF] = make_idt((va_t)pf_handler, IDT_TYPE_I32, IDT_DPL_KERNEL);
+    idt[IDT_FAULT_15] =
+        make_idt((va_t)fault_15_handler, IDT_TYPE_I32, IDT_DPL_KERNEL);
     idt[IDT_MF] = make_idt((va_t)mf_handler, IDT_TYPE_I32, IDT_DPL_KERNEL);
     idt[IDT_AC] = make_idt((va_t)ac_handler, IDT_TYPE_I32, IDT_DPL_KERNEL);
     idt[IDT_MC] = make_idt((va_t)mc_handler, IDT_TYPE_I32, IDT_DPL_KERNEL);
@@ -314,11 +351,12 @@ void idt_init() {
         make_idt((va_t)kbd_handler, IDT_TYPE_I32, IDT_DPL_KERNEL);
 
     for (i = IDT_SYSCALL_START; i < IDT_ENTS; i++) {
-        idt[i] = make_idt((va_t)sys_enosys, IDT_TYPE_T32, IDT_DPL_USER);
+        idt[i] = make_idt((va_t)sys_nonexist, IDT_TYPE_T32, IDT_DPL_USER);
     }
 
     idt[FORK_INT] = make_idt((va_t)sys_fork, IDT_TYPE_T32, IDT_DPL_USER);
     idt[EXEC_INT] = make_idt((va_t)sys_exec, IDT_TYPE_T32, IDT_DPL_USER);
+    idt[67] = make_idt((va_t)sys_67, IDT_TYPE_T32, IDT_DPL_USER);
     idt[WAIT_INT] = make_idt((va_t)sys_wait, IDT_TYPE_T32, IDT_DPL_USER);
     idt[YIELD_INT] = make_idt((va_t)sys_yield, IDT_TYPE_T32, IDT_DPL_USER);
     idt[DESCHEDULE_INT] =
@@ -348,14 +386,41 @@ void idt_init() {
     idt[MISBEHAVE_INT] =
         make_idt((va_t)sys_misbehave, IDT_TYPE_T32, IDT_DPL_USER);
     idt[HALT_INT] = make_idt((va_t)sys_halt, IDT_TYPE_T32, IDT_DPL_USER);
+    idt[86] = make_idt((va_t)sys_86, IDT_TYPE_T32, IDT_DPL_USER);
     idt[TASK_VANISH_INT] =
         make_idt((va_t)sys_task_vanish, IDT_TYPE_T32, IDT_DPL_USER);
     idt[SET_STATUS_INT] =
         make_idt((va_t)sys_set_status, IDT_TYPE_T32, IDT_DPL_USER);
     idt[VANISH_INT] = make_idt((va_t)sys_vanish, IDT_TYPE_T32, IDT_DPL_USER);
+    idt[97] = make_idt((va_t)sys_97, IDT_TYPE_T32, IDT_DPL_USER);
     idt[READFILE_INT] =
         make_idt((va_t)sys_readfile, IDT_TYPE_T32, IDT_DPL_USER);
+    idt[99] = make_idt((va_t)sys_99, IDT_TYPE_T32, IDT_DPL_USER);
+    idt[100] = make_idt((va_t)sys_100, IDT_TYPE_T32, IDT_DPL_USER);
+    idt[101] = make_idt((va_t)sys_101, IDT_TYPE_T32, IDT_DPL_USER);
+    idt[102] = make_idt((va_t)sys_102, IDT_TYPE_T32, IDT_DPL_USER);
+    idt[103] = make_idt((va_t)sys_103, IDT_TYPE_T32, IDT_DPL_USER);
+    idt[104] = make_idt((va_t)sys_104, IDT_TYPE_T32, IDT_DPL_USER);
+    idt[105] = make_idt((va_t)sys_105, IDT_TYPE_T32, IDT_DPL_USER);
+    idt[106] = make_idt((va_t)sys_106, IDT_TYPE_T32, IDT_DPL_USER);
+    idt[107] = make_idt((va_t)sys_107, IDT_TYPE_T32, IDT_DPL_USER);
+    idt[108] = make_idt((va_t)sys_108, IDT_TYPE_T32, IDT_DPL_USER);
+    idt[109] = make_idt((va_t)sys_109, IDT_TYPE_T32, IDT_DPL_USER);
+    idt[110] = make_idt((va_t)sys_110, IDT_TYPE_T32, IDT_DPL_USER);
+    idt[111] = make_idt((va_t)sys_111, IDT_TYPE_T32, IDT_DPL_USER);
+    idt[112] = make_idt((va_t)sys_112, IDT_TYPE_T32, IDT_DPL_USER);
+    idt[113] = make_idt((va_t)sys_113, IDT_TYPE_T32, IDT_DPL_USER);
+    idt[114] = make_idt((va_t)sys_114, IDT_TYPE_T32, IDT_DPL_USER);
+    idt[115] = make_idt((va_t)sys_115, IDT_TYPE_T32, IDT_DPL_USER);
     idt[SWEXN_INT] = make_idt((va_t)sys_swexn, IDT_TYPE_T32, IDT_DPL_USER);
+
+    idt[128] = make_idt((va_t)sys_128, IDT_TYPE_T32, IDT_DPL_USER);
+    idt[129] = make_idt((va_t)sys_129, IDT_TYPE_T32, IDT_DPL_USER);
+    idt[130] = make_idt((va_t)sys_130, IDT_TYPE_T32, IDT_DPL_USER);
+    idt[131] = make_idt((va_t)sys_131, IDT_TYPE_T32, IDT_DPL_USER);
+    idt[132] = make_idt((va_t)sys_132, IDT_TYPE_T32, IDT_DPL_USER);
+    idt[133] = make_idt((va_t)sys_133, IDT_TYPE_T32, IDT_DPL_USER);
+    idt[134] = make_idt((va_t)sys_134, IDT_TYPE_T32, IDT_DPL_USER);
 
     idt[HV_INT] = make_idt((va_t)sys_hvcall, IDT_TYPE_T32, IDT_DPL_USER);
 }
@@ -401,6 +466,8 @@ const static char* reasons[] = {"Division Error",
 static void dump_fault(ureg_t* frame);
 
 static int handle_zfod(ureg_t* frame, thread_t* t);
+static void handle_kernel_fault(ureg_t* frame, thread_t* t);
+static void handle_user_fault(ureg_t* frame, thread_t* t);
 
 /**
  * @brief handle a fault
@@ -414,63 +481,14 @@ void handle_fault(ureg_t* frame) {
             return;
         }
     }
-    if (frame->cs == SEGSEL_KERNEL_CS) {
-        /* recover from accessing user memory */
-        if ((frame->cause == SWEXN_CAUSE_PAGEFAULT ||
-             frame->cause == SWEXN_CAUSE_PROTFAULT) &&
-            current->eip0 != 0) {
-            frame->eip = current->eip0;
-            return;
-        }
-        /* all other non recoverable fault */
-        dump_fault(frame);
-        while (1) {
-        }
-    }
-    /* send to user swexn */
-    if (current->eip3 != 0 && current->df3 == 0) {
-        va_t esp3 = (va_t)current->esp3;
-        esp3 -= sizeof(ureg_t);
-        esp3 = (esp3 & (~(sizeof(va_t) - 1)));
-        /* push ureg */
-        if (copy_to_user(esp3, sizeof(ureg_t), frame) != 0) {
-            goto kill_thread;
-        }
-        /* push swexn args (return address, swexn arg, ureg)
-         * swexn handler must call swexn to jump back, we use 0 address to cause
-         * a GP on function return
-         */
-        unsigned long stack[3] = {0, current->swexn_arg, (unsigned long)esp3};
-        unsigned long* new_esp = (unsigned long*)esp3;
-        new_esp -= 3;
-        if (copy_to_user((va_t)new_esp, 3 * sizeof(unsigned long), stack) !=
-            0) {
-            goto kill_thread;
-        }
-        frame->edi = 0;
-        frame->esi = 0;
-        frame->ebp = 0;
-        frame->zero = 0;
-        frame->ebx = 0;
-        frame->edx = 0;
-        frame->ecx = 0;
-        frame->eax = 0;
-        frame->eip = current->eip3;
-        frame->eflags = DEFAULT_EFLAGS;
-        frame->esp = (unsigned int)new_esp;
-        current->df3 = 1;
-        current->eip3 = 0;
+    if (frame->cs == SEGSEL_PV_CS) {
+        pv_handle_fault(frame, current);
+        return;
+    } else if (frame->cs == SEGSEL_KERNEL_CS) {
+        handle_kernel_fault(frame, current);
         return;
     }
-    /* no swexn handler or fault inside swexn */
-kill_thread:
-    sim_printf("LWP %d killed: %s", current->rb_node.key,
-               reasons[frame->cause]);
-    printf("LWP %d killed: %s\n", current->rb_node.key, reasons[frame->cause]);
-    if (current->process->refcount == 1) {
-        current->process->exit_value = -2;
-    }
-    kill_current();
+    handle_user_fault(frame, current);
 }
 
 static int handle_zfod(ureg_t* frame, thread_t* t) {
@@ -494,6 +512,66 @@ static int handle_zfod(ureg_t* frame, thread_t* t) {
     map_phys_page(old_pa, NULL);
     restore_if(old_if);
     return result;
+}
+
+static void handle_kernel_fault(ureg_t* frame, thread_t* t) {
+    /* recover from accessing user memory */
+    if ((frame->cause == SWEXN_CAUSE_PAGEFAULT ||
+         frame->cause == SWEXN_CAUSE_PROTFAULT) &&
+        t->eip0 != 0) {
+        frame->eip = t->eip0;
+        return;
+    }
+    /* all other non recoverable fault */
+    dump_fault(frame);
+    while (1) {
+    }
+}
+
+static void handle_user_fault(ureg_t* frame, thread_t* t) {
+    /* send to user swexn */
+    if (t->eip3 != 0 && t->df3 == 0) {
+        va_t esp3 = (va_t)t->esp3;
+        esp3 -= sizeof(ureg_t);
+        esp3 = (esp3 & (~(sizeof(va_t) - 1)));
+        /* push ureg */
+        if (copy_to_user(esp3, sizeof(ureg_t), frame) != 0) {
+            goto kill_thread;
+        }
+        /* push swexn args (return address, swexn arg, ureg)
+         * swexn handler must call swexn to jump back, we use 0 address to cause
+         * a GP on function return
+         */
+        unsigned long stack[3] = {0, t->swexn_arg, (unsigned long)esp3};
+        unsigned long* new_esp = (unsigned long*)esp3;
+        new_esp -= 3;
+        if (copy_to_user((va_t)new_esp, 3 * sizeof(unsigned long), stack) !=
+            0) {
+            goto kill_thread;
+        }
+        frame->edi = 0;
+        frame->esi = 0;
+        frame->ebp = 0;
+        frame->zero = 0;
+        frame->ebx = 0;
+        frame->edx = 0;
+        frame->ecx = 0;
+        frame->eax = 0;
+        frame->eip = t->eip3;
+        frame->eflags = DEFAULT_EFLAGS;
+        frame->esp = (unsigned int)new_esp;
+        t->df3 = 1;
+        t->eip3 = 0;
+        return;
+    }
+    /* no swexn handler or fault inside swexn */
+kill_thread:
+    sim_printf("LWP %d killed: %s", t->rb_node.key, reasons[frame->cause]);
+    printf("LWP %d killed: %s\n", t->rb_node.key, reasons[frame->cause]);
+    if (t->process->refcount == 1) {
+        t->process->exit_value = -2;
+    }
+    kill_current();
 }
 
 static void dump_fault(ureg_t* frame) {

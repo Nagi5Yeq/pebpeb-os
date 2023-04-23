@@ -11,6 +11,7 @@
 
 #include <common_kern.h>
 #include <x86/asm.h>
+#include <x86/seg.h>
 
 #include <console.h>
 #include <mm.h>
@@ -46,6 +47,11 @@ static reg_t usermem_setup() {
     thread_t* current = get_current();
     reg_t old_eip0 = current->eip0;
     current->eip0 = (reg_t)usermem_fail;
+    if (current->process->pv != NULL) {
+        set_gs(SEGSEL_PV_DS);
+    } else {
+        set_gs(SEGSEL_USER_DS);
+    }
     return old_eip0;
 }
 

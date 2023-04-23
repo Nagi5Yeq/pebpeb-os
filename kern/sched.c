@@ -70,12 +70,6 @@ uint64_t create_segsel(va_t base, va_size_t limit, uint64_t flags) {
     return ss;
 }
 
-/**
- * @brief set fs
- * @param fs fs
- */
-void set_fs(reg_t fs);
-
 void setup_percpu(percpu_t* percpu) {
     uint64_t* gdt = (uint64_t*)gdt_base();
     uint64_t ds = gdt[SEGSEL_KERNEL_DS_IDX];

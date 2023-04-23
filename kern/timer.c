@@ -60,10 +60,11 @@ static void check_timers() {
     spl_unlock(&timer_lock, old_if);
 }
 
-void timer_handler_real() {
+void timer_handler_real(stack_frame_t* f) {
     pic_acknowledge(TIMER_IRQ);
     ticks++;
     check_timers();
+    pv_inject_interrupt(f, TIMER_IDT_ENTRY, 0);
     int old_if = spl_lock(&ready_lock);
     thread_t* current = get_current();
     if (current != get_idle()) {
