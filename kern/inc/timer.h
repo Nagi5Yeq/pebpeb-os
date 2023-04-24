@@ -21,4 +21,6 @@ extern heap_t timers;
  */
 void timer_init();
 
+void setup_lapic_timer();
+
 #endif

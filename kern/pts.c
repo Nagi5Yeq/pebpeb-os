@@ -44,7 +44,6 @@ pts_t kernel_pts;
 
 void setup_pts() {
     pts_init(&kernel_pts);
-    get_current()->pts = &kernel_pts;
     kernel_pts.refcount++; /* kernel's refcount for all kths */
     active_pts = &kernel_pts;
 }

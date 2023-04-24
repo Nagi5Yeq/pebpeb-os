@@ -88,6 +88,7 @@ void setup_kth(thread_t* kthread, process_t* kprocess) {
     kprocess->refcount = 1;
     kprocess->cr3 = (pa_t)kernel_pd;
     kthread->process = kprocess;
+    kthread->pts = active_pts;
     set_current(kthread);
     set_kthread(kthread);
 }

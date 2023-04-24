@@ -61,7 +61,7 @@ void paging_init() {
     pte_t* lapic_pte = (pte_t*)kernel_pt + (LAPIC_VIRT_BASE / PAGE_SIZE);
     *lapic_pte =
         (make_pte(lapic_pa, PTE_G, PTE_SUPERVISOR, PTE_RW, PTE_PRESENT) |
-         (PTE_PCD << PTE_PCD_SHIFT));
+         (PTE_PWT << PTE_PWT_SHIFT) | (PTE_PCD << PTE_PCD_SHIFT));
 
     set_cr4(get_cr4() | CR4_PSE | CR4_PGE);
     set_cr3((uint32_t)kernel_pd);

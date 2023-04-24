@@ -55,6 +55,7 @@ static void kernel_smp_main();
 int kernel_main(mbinfo_t* mbinfo, int argc, char** argv, char** envp) {
     int smp_good = (smp_init(mbinfo) == 0);
     paging_init();
+    setup_pts();
     percpu_t percpu;
     setup_percpu(&percpu);
     thread_t kthread;
@@ -62,12 +63,12 @@ int kernel_main(mbinfo_t* mbinfo, int argc, char** argv, char** envp) {
     setup_kth(&kthread, &kprocess);
     set_mapped_phys_page(mapped_phys_pages);
     set_mapped_phys_page_pte(mapped_phys_page_ptes);
-    setup_pts();
 
     idt_init();
     mm_init();
-    timer_init();
     pv_init();
+    timer_init();
+
     print_toad();
 
     const char* init_args[] = {INIT_NAME};
@@ -76,11 +77,12 @@ int kernel_main(mbinfo_t* mbinfo, int argc, char** argv, char** envp) {
     add_thread(init);
     insert_ready_tail(init);
 
-    if (smp_good && smp_num_cpus() > 1 && 0) {
-        /* SMP not enabled */
+    if (smp_good && smp_num_cpus() > 1) {
+        set_cr3((pa_t)&kernel_pd);
         smp_boot(kernel_smp_entry);
     }
 
+    setup_lapic_timer();
     kernel_smp_main();
     return -1;
 }
@@ -94,6 +96,7 @@ static void kernel_smp_entry(int cpuid) {
     setup_kth(&kthread, &kprocess);
     set_mapped_phys_page(mapped_phys_pages + cpuid * PAGE_SIZE);
     set_mapped_phys_page_pte(mapped_phys_page_ptes + cpuid);
+    setup_lapic_timer();
     kernel_smp_main();
 }
 

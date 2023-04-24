@@ -316,6 +316,7 @@ static pv_pd_t* translate_pv_pd(pv_t* pv, pa_t pd, int wp) {
         }
         pt_pa += pv->mem_base;
         page_table_t* pt = (page_table_t*)map_phys_page(pt_pa, NULL);
+        int old_pde_us = (old_pde & (1 << PTE_US_SHIFT));
         int j;
         for (j = 0; j < NUM_PAGE_ENTRY; j++) {
             pte_t old_pte = (*pt)[j];
@@ -340,7 +341,7 @@ static pv_pd_t* translate_pv_pd(pv_t* pv, pa_t pd, int wp) {
                 new_mask =
                     ((1 << PTE_P_SHIFT) | old_rw | (PTE_USER << PTE_US_SHIFT));
             }
-            if (old_us != 0) {
+            if ((old_us & old_pde_us) != 0) {
                 new_user_mask =
                     ((1 << PTE_P_SHIFT) | old_rw | (PTE_USER << PTE_US_SHIFT));
             } else {
@@ -543,7 +544,7 @@ static void hvcall_print(stack_frame_t* f) {
     if (copy_from_user(esp, sizeof(int), &len) != 0) {
         goto read_arg_fail;
     }
-    if (len < 0) {
+    if (len < 0 || len > HV_PRINT_MAX) {
         goto bad_length;
     }
     if (copy_from_user(esp + sizeof(va_t), sizeof(va_t), &base) != 0) {
@@ -659,6 +660,9 @@ static void hvcall_print_at(stack_frame_t* f) {
     if (copy_from_user(esp + 4 * sizeof(va_t), sizeof(int), &color) != 0) {
         goto read_arg_fail;
     }
+    if (len < 0 || len > HV_PRINT_MAX) {
+        goto bad_length;
+    }
     pts_t* pts = get_current()->pts;
     mutex_lock(&pts->lock);
     int result = pts_print_at(pts, len, base, row, col, color);
@@ -670,6 +674,8 @@ static void hvcall_print_at(stack_frame_t* f) {
 
 print_fail:
     pv_die("Bad argument");
+bad_length:
+    pv_die("Bad buffer length");
 read_arg_fail:
     pv_die("Bad argument address");
 }

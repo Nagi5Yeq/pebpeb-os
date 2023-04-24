@@ -56,6 +56,7 @@ typedef unsigned int reg_t;
 /** means a page can only be accessed in ring 0 */
 #define PTE_SUPERVISOR 0
 #define PTE_PCD 1
+#define PTE_PWT 1
 /** means a page's TLB entry should not be flushed on switching cr3 */
 #define PTE_G 1
 
@@ -65,6 +66,8 @@ typedef unsigned int reg_t;
 #define PTE_RW_SHIFT 1
 /** USER/SUPERVISOR bit's position */
 #define PTE_US_SHIFT 2
+/** PWT bit's position */
+#define PTE_PWT_SHIFT 3
 /** PCD bit's position */
 #define PTE_PCD_SHIFT 4
 /** G bit's position */

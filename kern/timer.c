@@ -10,8 +10,10 @@
 #include <stdio.h>
 #include <string.h>
 
+#include <apic.h>
 #include <assert.h>
 #include <x86/asm.h>
+#include <x86/idt.h>
 #include <x86/interrupt_defines.h>
 #include <x86/timer_defines.h>
 
@@ -26,19 +28,49 @@ spl_t timer_lock = SPL_INIT;
 
 heap_t timers;
 
-/* we want a 2ms thread switch but since sometimes interrupts are disabled, we
- * set a higher rate to compensate this
- */
-#define TIMER_FREQ 1000
+static uint32_t lapic_dt;
+
+/* 2ms */
+#define TIMER_FREQ 500
+
+int timer_test_status;
+
+void timer_test_handler();
 
 void timer_init() {
-    int counter = TIMER_RATE / TIMER_FREQ;
+    /* use 10x slower frequency for APIC timer testing */
+    int counter = TIMER_RATE / (TIMER_FREQ / 10);
     outb(TIMER_MODE_IO_PORT, TIMER_SQUARE_WAVE);
     outb(TIMER_PERIOD_IO_PORT, counter & 0xFF);
     outb(TIMER_PERIOD_IO_PORT, (counter >> 8) & 0xFF);
     if (heap_init(&timers) != 0) {
         panic("no space to initialize timer heap");
     }
+    idt_t* idt = (idt_t*)idt_base();
+    idt_t old_idt = idt[TIMER_IDT_ENTRY];
+    idt[TIMER_IDT_ENTRY] =
+        make_idt((va_t)timer_test_handler, IDT_TYPE_I32, IDT_DPL_KERNEL);
+
+    lapic_write(LAPIC_LVT_TIMER, (LAPIC_ONESHOT | TIMER_IDT_ENTRY));
+    lapic_write(LAPIC_TIMER_DIV, LAPIC_X1);
+    lapic_write(LAPIC_TIMER_INIT, 0xffffffff);
+
+    timer_test_status = 10;
+    enable_interrupts();
+    while (timer_test_status != 0) {
+    }
+    disable_interrupts();
+
+    lapic_dt = (0xffffffff - lapic_read(LAPIC_TIMER_CUR)) / 100;
+    lapic_write(LAPIC_TIMER_INIT, 0);
+    idt[TIMER_IDT_ENTRY] = old_idt;
+}
+
+void setup_lapic_timer() {
+    lapic_write(LAPIC_LVT_TIMER, (LAPIC_PERIODIC | TIMER_IDT_ENTRY));
+    lapic_write(LAPIC_TIMER_DIV, LAPIC_X1);
+    lapic_write(LAPIC_TIMER_INIT, lapic_dt);
+    outb(TIMER_MODE_IO_PORT, TIMER_ONE_SHOT);
 }
 
 /**
@@ -61,7 +93,7 @@ static void check_timers() {
 }
 
 void timer_handler_real(stack_frame_t* f) {
-    pic_acknowledge(TIMER_IRQ);
+    apic_eoi();
     ticks++;
     check_timers();
     pv_inject_irq(f, TIMER_IDT_ENTRY, 0);
