@@ -8,9 +8,9 @@
 .type timer_test_handler, %function
 timer_test_handler:
     push %eax
-    mov timer_test_status, %eax
+    mov timer_count, %eax
     dec %eax
-    mov %eax, timer_test_status
+    mov %eax, timer_count
     mov $INT_ACK_CURRENT, %al
     mov $INT_CTL_PORT, %dx
     outb %al, %dx

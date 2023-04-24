@@ -33,14 +33,14 @@ static uint32_t lapic_dt;
 /* 2ms */
 #define TIMER_FREQ 500
 
-int timer_test_status;
+int timer_count;
 
 void timer_test_handler();
 
 void timer_init() {
     /* use 10x slower frequency for APIC timer testing */
     int counter = TIMER_RATE / (TIMER_FREQ / 10);
-    outb(TIMER_MODE_IO_PORT, TIMER_SQUARE_WAVE);
+    outb(TIMER_MODE_IO_PORT, TIMER_ONE_SHOT);
     outb(TIMER_PERIOD_IO_PORT, counter & 0xFF);
     outb(TIMER_PERIOD_IO_PORT, (counter >> 8) & 0xFF);
     if (heap_init(&timers) != 0) {
@@ -55,11 +55,20 @@ void timer_init() {
     lapic_write(LAPIC_TIMER_DIV, LAPIC_X1);
     lapic_write(LAPIC_TIMER_INIT, 0xffffffff);
 
-    timer_test_status = 10;
-    enable_interrupts();
-    while (timer_test_status != 0) {
+    timer_count = 10;
+    while (1) {
+        int old_timer_count = timer_count;
+        outb(TIMER_MODE_IO_PORT, TIMER_ONE_SHOT);
+        outb(TIMER_PERIOD_IO_PORT, counter & 0xFF);
+        outb(TIMER_PERIOD_IO_PORT, (counter >> 8) & 0xFF);
+        enable_interrupts();
+        while (timer_count == old_timer_count) {
+        }
+        disable_interrupts();
+        if (timer_count == 0) {
+            break;
+        }
     }
-    disable_interrupts();
 
     lapic_dt = (0xffffffff - lapic_read(LAPIC_TIMER_CUR)) / 100;
     lapic_write(LAPIC_TIMER_INIT, 0);
@@ -70,7 +79,6 @@ void setup_lapic_timer() {
     lapic_write(LAPIC_LVT_TIMER, (LAPIC_PERIODIC | TIMER_IDT_ENTRY));
     lapic_write(LAPIC_TIMER_DIV, LAPIC_X1);
     lapic_write(LAPIC_TIMER_INIT, lapic_dt);
-    outb(TIMER_MODE_IO_PORT, TIMER_ONE_SHOT);
 }
 
 /**
