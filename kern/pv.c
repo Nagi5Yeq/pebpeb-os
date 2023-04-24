@@ -85,6 +85,11 @@ thread_t* create_pv_process(thread_t* t,
     pv->shadow_pds = NULL;
     pv->vif = 0;
     memset(&pv->vidt, 0, sizeof(pv_idt_t));
+
+    mutex_lock(&t->pts->lock);
+    queue_insert_head(&t->pts->pvs, &pv->pts_link);
+    mutex_unlock(&t->pts->lock);
+
     p->pv = pv;
 
     int n_bootmem_pages = mem_size / PAGE_SIZE;
@@ -314,6 +319,13 @@ push_frame_fail:
     pv_die("Error when pushing interrupt frame to stack");
 }
 
+void pv_pend_irq(pv_t* pv, int index, int arg) {
+    pv_irq_t* irq = &pv->vidt.pending_irq[index - PV_IRQ_START];
+    irq->pending = 1;
+    irq->arg = arg;
+    return;
+}
+
 int pv_inject_irq(stack_frame_t* f, int index, int arg) {
     thread_t* t = get_current();
     pv_t* pv = t->process->pv;
@@ -321,9 +333,7 @@ int pv_inject_irq(stack_frame_t* f, int index, int arg) {
         return -1;
     }
     if (f->cs != SEGSEL_PV_CS || (pv->vif & EFL_IF) == 0) {
-        pv_irq_t* irq = &pv->vidt.pending_irq[index - PV_IRQ_START];
-        irq->pending = 1;
-        irq->arg = arg;
+        pv_pend_irq(pv, index, arg);
         return 0;
     }
     pv_idt_entry_t* idt = &pv->vidt.irq[index - PV_IRQ_START];

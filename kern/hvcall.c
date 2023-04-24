@@ -24,11 +24,11 @@
 
 #include <asm_instr.h>
 #include <assert.h>
-#include <pts.h>
 #include <loader.h>
 #include <malloc.h>
 #include <mm.h>
 #include <paging.h>
+#include <pts.h>
 #include <sched.h>
 #include <sync.h>
 #include <timer.h>
@@ -642,8 +642,8 @@ static void hvcall_print_at(stack_frame_t* f) {
     reg_t esp = f->esp;
     int len;
     va_t base;
-    int row, col, old_row, old_col;
-    int color, old_color;
+    int row, col;
+    int color;
     if (copy_from_user(esp, sizeof(int), &len) != 0) {
         goto read_arg_fail;
     }
@@ -661,28 +661,14 @@ static void hvcall_print_at(stack_frame_t* f) {
     }
     pts_t* pts = get_current()->pts;
     mutex_lock(&pts->lock);
-    pts_get_cursor(pts, &old_row, &old_col);
-    if (pts_set_cursor(pts, row, col) != 0) {
-        goto bad_pos;
-    }
-    pts_get_term_color(pts, &old_color);
-    if (pts_set_term_color(pts, color) != 0) {
-        goto bad_color;
-    }
-    if (print_buf_from_user(pts, base, len) != 0) {
-        goto bad_print;
-    }
-    pts_set_term_color(pts, old_color);
-    pts_set_cursor(pts, old_row, old_col);
+    int result = pts_print_at(pts, len, base, row, col, color);
     mutex_unlock(&pts->lock);
+    if (result != 0) {
+        goto print_fail;
+    }
     return;
 
-bad_print:
-    pts_set_term_color(pts, old_color);
-bad_color:
-    pts_set_cursor(pts, old_row, old_col);
-bad_pos:
-    mutex_unlock(&pts->lock);
+print_fail:
     pv_die("Bad argument");
 read_arg_fail:
     pv_die("Bad argument address");

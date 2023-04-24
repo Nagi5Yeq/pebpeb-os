@@ -40,6 +40,15 @@ pts_t* active_pts = NULL;
 spl_t pts_lock = SPL_INIT;
 queue_t* all_pts = NULL;
 
+pts_t kernel_pts;
+
+void setup_pts() {
+    pts_init(&kernel_pts);
+    get_current()->pts = &kernel_pts;
+    kernel_pts.refcount++; /* kernel's refcount for all kths */
+    active_pts = &kernel_pts;
+}
+
 void pts_init(pts_t* pts) {
     pts->cur_x = pts->cur_y = 0;
     pts->cur_color = DEFAULT_COLOR;
@@ -52,10 +61,29 @@ void pts_init(pts_t* pts) {
     pts->input_cv = CV_INIT;
     pts->kh_r_pos = pts->kh_w_pos = 0;
     pts->chr_r_pos = pts->chr_w_pos = 0;
+    pts->forward_tab = 0;
 
     pts->lock = MUTEX_INIT;
+    pts->pvs = NULL;
     pts->refcount = 0;
-    queue_insert_head(&all_pts, &pts->pts_link);
+    queue_insert_tail(&all_pts, &pts->pts_link);
+}
+
+void switch_pts(pts_t* new_pts) {
+    int old_if = spl_lock(&pts_lock);
+    pts_t* pts = active_pts;
+    active_pts = new_pts;
+    if (pts->refcount == 0) {
+        queue_detach(&all_pts, &pts->pts_link);
+        sfree(pts, sizeof(pts_t));
+    }
+    memcpy(console_mem, new_pts->mem, sizeof(new_pts->mem));
+    int pos = new_pts->cur_y * CONSOLE_WIDTH + new_pts->cur_x;
+    outb(CRTC_IDX_REG, CRTC_CURSOR_LSB_IDX);
+    outb(CRTC_DATA_REG, pos & 0xff);
+    outb(CRTC_IDX_REG, CRTC_CURSOR_MSB_IDX);
+    outb(CRTC_DATA_REG, pos >> 8);
+    spl_unlock(&pts_lock, old_if);
 }
 
 /**
@@ -117,6 +145,13 @@ static inline void draw_char(pts_t* pts,
 }
 
 int putbyte(char ch) {
+    if (active_pts == NULL) {
+        /* this only happens when panicking before setup_pts */
+        active_pts = &kernel_pts;
+        pts_putbyte(&kernel_pts, ch);
+        active_pts = NULL;
+        return 0;
+    }
     return pts_putbyte(get_current()->pts, ch);
 }
 
@@ -202,18 +237,71 @@ void pts_get_cursor(pts_t* pts, int* row, int* col) {
     *col = pts->cur_x;
 }
 
+int pts_print_at(pts_t* pts, int len, va_t buf, int row, int col, int color) {
+    int old_row, old_col;
+    int old_color;
+    pts_get_cursor(pts, &old_row, &old_col);
+    if (pts_set_cursor(pts, row, col) != 0) {
+        goto bad_pos;
+    }
+    pts_get_term_color(pts, &old_color);
+    if (pts_set_term_color(pts, color) != 0) {
+        goto bad_color;
+    }
+    if (print_buf_from_user(pts, buf, len) != 0) {
+        goto bad_print;
+    }
+    pts_set_term_color(pts, old_color);
+    pts_set_cursor(pts, old_row, old_col);
+    return 0;
+
+bad_print:
+    pts_set_term_color(pts, old_color);
+bad_color:
+    pts_set_cursor(pts, old_row, old_col);
+bad_pos:
+    return -1;
+}
+
 /**
  * @brief keyboard inturrupt handler
  */
 void kbd_handler_real(stack_frame_t* f) {
     unsigned char sc = inb(KEYBOARD_PORT);
     pic_acknowledge(KBD_IRQ);
+    pts_t* pts = active_pts;
+    int should_insert = 0;
     kh_type kh = process_scancode(sc);
-    if (pv_inject_irq(f, KEY_IDT_ENTRY, kh) == 0) {
+    if (KH_HASDATA(kh) && KH_ISMAKE(kh)) {
+        should_insert = 1;
+        if (KH_GETCHAR(kh) == KHE_TAB) {
+            if (KH_SHIFT(kh) != 0) {
+                if (pts->forward_tab == 0) {
+                    pts->forward_tab = 1;
+                    return;
+                }
+                /* else forward shift+tab to client */
+            } else if (KH_CTL(kh) != 0) {
+                if (pts->forward_tab != 0) {
+                    pts->forward_tab = 0;
+                    return;
+                }
+            } else if (pts->forward_tab == 0) {
+                pts_t* new_pts =
+                    queue_data(pts->pts_link.next, pts_t, pts_link);
+                if (new_pts != pts) {
+                    switch_pts(new_pts);
+                }
+                return;
+            }
+        }
+    }
+    if (pts->pvs != NULL) {
+        pv_t* pv = queue_data(pts->pvs, pv_t, pts_link);
+        pv_pend_irq(pv, KEY_IDT_ENTRY, kh);
         return;
     }
-    pts_t* pts = active_pts;
-    if (KH_HASDATA(kh) && KH_ISMAKE(kh)) {
+    if (should_insert != 0) {
         int next_w_pos = (pts->kh_w_pos + 1) % KH_RING_SIZE;
         if (next_w_pos != pts->kh_r_pos) {
             pts->kh_ring[pts->kh_w_pos] = kh;

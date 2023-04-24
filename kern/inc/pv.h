@@ -76,6 +76,7 @@ typedef struct pv_s {
     queue_t* shadow_pds;
     pv_idt_t vidt;
     va_t vesp0;
+    queue_t pts_link;
 } pv_t;
 
 void pv_init();
@@ -124,13 +125,19 @@ void pv_select_pd(process_t* p, pv_pd_t* pv_pd);
 
 void pv_handle_fault(ureg_t* frame, thread_t* t);
 
+void pv_pend_irq(pv_t* pv, int index, int arg);
+
 struct stack_frame_s;
 typedef struct stack_frame_s stack_frame_t;
 int pv_inject_irq(stack_frame_t* f, int index, int arg);
 
 void pv_check_pending_irq(stack_frame_t* f);
 
-void pv_inject_interrupt(thread_t* t, pv_t* pv, stack_frame_t* f, int arg, va_t eip);
+void pv_inject_interrupt(thread_t* t,
+                         pv_t* pv,
+                         stack_frame_t* f,
+                         int arg,
+                         va_t eip);
 
 typedef struct pv_frame_s {
     reg_t cr2;

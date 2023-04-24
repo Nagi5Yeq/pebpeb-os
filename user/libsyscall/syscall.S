@@ -216,3 +216,9 @@ yield:
     mov 0x4(%esp), %esi
     int $YIELD_INT
     ret
+
+.global new_console
+
+new_console:
+    int $NEW_CONSOLE_INT
+    ret

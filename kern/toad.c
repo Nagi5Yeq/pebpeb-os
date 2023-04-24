@@ -57,14 +57,7 @@ const char toad[] =
     "........:^!J5PBBBBBB";
 
 void print_toad() {
-    pts_t* pts = smalloc(sizeof(pts_t));
-    pts_init(pts);
-    get_current()->pts = pts;
-    pts->refcount++;
-
-    active_pts = pts;
-    pts->refcount++;
-
+    pts_t* pts = get_current()->pts;
     pts_set_cursor(pts, 0, 0);
     pts_set_term_color(pts, FGND_WHITE | BGND_BLACK);
     pts_putbytes(pts, toad, sizeof(toad) - 1);

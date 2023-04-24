@@ -59,6 +59,7 @@ SYSCALL get_ticks 0x53
 SYSCALL misbehave 0x54
 SYSCALL halt 0x55
 SYSCALL task_vanish 0x57
+SYSCALL new_console 0x58
 SYSCALL set_status 0x59
 SYSCALL vanish 0x60
 SYSCALL readfile 0x62

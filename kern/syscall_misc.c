@@ -29,6 +29,7 @@
 #include <sched.h>
 #include <sync.h>
 #include <timer.h>
+#include <toad.h>
 #include <usermem.h>
 
 /**
@@ -158,4 +159,23 @@ static reg_t read_dot_file(va_t buf, int count, int offset) {
         written++;
     }
     return (reg_t)written;
+}
+
+void sys_new_console_real(stack_frame_t* f) {
+    thread_t* t = get_current();
+    pts_t* old_pts = t->pts;
+    pts_t* pts = smalloc(sizeof(pts_t));
+    if (pts == NULL) {
+        f->eax = (reg_t)-1;
+        return;
+    }
+    pts_init(pts);
+
+    pts->refcount++;
+    t->pts = pts;
+    mutex_lock(&old_pts->lock);
+    old_pts->refcount--;
+    mutex_unlock(&old_pts->lock);
+    switch_pts(pts);
+    print_toad();
 }

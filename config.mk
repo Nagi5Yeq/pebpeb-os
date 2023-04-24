@@ -199,7 +199,7 @@ KERNEL_OBJS = pts.o kernel.o loader.o malloc_wrappers.o sync_asm.o \
 	exec_basic loader_test2 score yield_desc_mkrun \
 	exec_basic_helper make_crash shell \
 	exec_nonexist make_crash_helper slaughter \
-	minclone_many
+	minclone_many new_shell
 
 
 ###########################################################################

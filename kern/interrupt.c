@@ -261,6 +261,10 @@ void sys_halt();
  */
 void sys_task_vanish();
 /**
+ * @brief new_console() syscall entry
+ */
+void sys_new_console();
+/**
  * @brief set_status() syscall entry
  */
 void sys_set_status();
@@ -389,6 +393,8 @@ void idt_init() {
     idt[86] = make_idt((va_t)sys_86, IDT_TYPE_T32, IDT_DPL_USER);
     idt[TASK_VANISH_INT] =
         make_idt((va_t)sys_task_vanish, IDT_TYPE_T32, IDT_DPL_USER);
+    idt[NEW_CONSOLE_INT] =
+        make_idt((va_t)sys_new_console, IDT_TYPE_T32, IDT_DPL_USER);
     idt[SET_STATUS_INT] =
         make_idt((va_t)sys_set_status, IDT_TYPE_T32, IDT_DPL_USER);
     idt[VANISH_INT] = make_idt((va_t)sys_vanish, IDT_TYPE_T32, IDT_DPL_USER);

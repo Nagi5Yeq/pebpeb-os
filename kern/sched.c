@@ -15,11 +15,11 @@
 #include <x86/seg.h>
 
 #include <asm_instr.h>
-#include <pts.h>
 #include <loader.h>
 #include <malloc.h>
 #include <mm.h>
 #include <paging.h>
+#include <pts.h>
 #include <pv.h>
 #include <sched.h>
 #include <sync.h>
@@ -334,10 +334,13 @@ alloc_tcb_fail:
 }
 
 void destroy_thread(thread_t* t) {
+    process_t* p = t->process;
     mutex_lock(&t->pts->lock);
     t->pts->refcount--;
+    if (p->pv != NULL) {
+        queue_detach(&t->pts->pvs, &p->pv->pts_link);
+    }
     mutex_unlock(&t->pts->lock);
-    process_t* p = t->process;
     sfree(t->stack, K_STACK_SIZE);
     sfree(t, sizeof(thread_t));
     mutex_lock(&p->refcount_lock);
@@ -664,16 +667,19 @@ void kill_current() {
             spl_unlock(&ready_lock, old_if);
         }
     }
+    p = current->process;
 
     mutex_lock(&current->pts->lock);
     current->pts->refcount--;
+    if (p->pv != NULL) {
+        queue_detach(&current->pts->pvs, &p->pv->pts_link);
+    }
     mutex_unlock(&current->pts->lock);
 
     if (current->rb_node.parent != NULL) {
         remove_thread(current);
     }
 
-    p = current->process;
     mutex_lock(&p->refcount_lock);
     p->refcount--;
     queue_detach(&p->threads, &current->process_link);

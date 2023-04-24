@@ -24,13 +24,14 @@
 
 #include <assert.h>
 #include <common.h>
-#include <pts.h>
 #include <interrupt.h>
 #include <mm.h>
 #include <paging.h>
+#include <pts.h>
 #include <pv.h>
 #include <sched.h>
 #include <timer.h>
+#include <toad.h>
 
 void print_toad();
 
@@ -61,6 +62,7 @@ int kernel_main(mbinfo_t* mbinfo, int argc, char** argv, char** envp) {
     setup_kth(&kthread, &kprocess);
     set_mapped_phys_page(mapped_phys_pages);
     set_mapped_phys_page_pte(mapped_phys_page_ptes);
+    setup_pts();
 
     idt_init();
     mm_init();

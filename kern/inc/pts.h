@@ -65,6 +65,7 @@ typedef struct kbd_request_s {
 
 typedef struct pts_s {
     queue_t pts_link;
+    queue_t* pvs;
     int refcount;
     mutex_t lock;
 
@@ -85,10 +86,13 @@ typedef struct pts_s {
     char chr_ring[CHR_RING_SIZE];
     int chr_r_pos;
     int chr_w_pos;
+    int forward_tab;
 } pts_t;
 
 extern pts_t* active_pts;
 extern spl_t pts_lock;
+
+void setup_pts();
 
 void pts_init(pts_t* pts);
 
@@ -175,6 +179,8 @@ int pts_set_cursor(pts_t* pts, int row, int col);
  */
 void pts_get_cursor(pts_t* pts, int* row, int* col);
 
+int pts_print_at(pts_t* pts, int len, va_t buf, int row, int col, int color);
+
 /**
  * @brief read a line to userspace
  * @param len max length to read
@@ -188,5 +194,7 @@ int do_readline(int len, va_t buf);
  * @return char read
  */
 int do_getchar();
+
+void switch_pts(pts_t* pts);
 
 #endif /* _PTS_H */
