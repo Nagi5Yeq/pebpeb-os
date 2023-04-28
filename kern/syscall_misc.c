@@ -47,6 +47,7 @@ void sys_misbehave_real(stack_frame_t* f) {
 void sys_halt_real(stack_frame_t* f) {
     sim_halt();
     hlt();
+    panic("Halted");
 }
 
 /**
@@ -96,6 +97,7 @@ void sys_readfile_real(stack_frame_t* f) {
     if (fp == NULL) {
         goto no_such_file;
     }
+    free(filename);
     if (offset > fp->execlen) {
         goto offset_too_big;
     }

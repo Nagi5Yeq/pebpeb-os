@@ -647,15 +647,21 @@ void kill_current() {
         if (p->refcount == 1) {
             mutex_lock(&p->wait_lock);
             /* reclaim dead childs */
+            queue_t* dead_childs = NULL;
             while (p->dead_childs != NULL) {
                 queue_t* node = p->dead_childs;
                 queue_detach(&p->dead_childs, node);
-                process_t* child_process =
-                    queue_data(node, process_t, sible_link);
-                sfree(child_process, sizeof(process_t));
+                queue_insert_tail(&dead_childs, node);
                 p->nchilds--;
             }
             mutex_unlock(&p->wait_lock);
+            while (dead_childs != NULL) {
+                queue_t* node = dead_childs;
+                queue_detach(&dead_childs, node);
+                process_t* child_process =
+                    queue_data(node, process_t, sible_link);
+                sfree(child_process, sizeof(process_t));
+            }
             const char* init_args[] = {INIT_NAME};
             thread_t* new_init =
                 create_process(current->rb_node.key, INIT_NAME, 1, init_args);

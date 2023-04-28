@@ -33,9 +33,9 @@ get_\name:
 .global set_\name
 .type set_\name, %function
 set_\name:
-    xor %esi, %esi
+    xor %ecx, %ecx
     mov 0x4(%esp), %eax
-    mov %eax, %fs:\offset(%esi)
+    mov %eax, %fs:\offset(%ecx)
     ret
 .endm
 
@@ -68,5 +68,7 @@ switch_stack_cleanup:
     add $0x4, %esp
     pop %ebp
     pop %ebx
+    pop %esi
+    pop %edi
     popf
     ret

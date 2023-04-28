@@ -77,6 +77,8 @@ typedef struct region_s {
 typedef struct yield_frame_s {
     reg_t ebp;
     reg_t ebx;
+    reg_t esi;
+    reg_t edi;
     reg_t eflags;
     reg_t raddr;
 } yield_frame_t;

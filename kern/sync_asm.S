@@ -29,26 +29,30 @@ restore_if:
 .global spl_lock
 .type spl_lock, %function
 spl_lock:
+    push %ebx
     pushf
-    pop %edx
+    pop %ebx
     cli
-    mov 0x4(%esp), %esi
-    mov $1, %edi
+    mov 0x8(%esp), %ecx
+    mov $1, %edx
 .spl_lock_try:
-    xor %eax, %eax
-    lock cmpxchg %edi, (%esi)
+    mov (%ecx), %eax
     test %eax, %eax
     jnz .spl_lock_try
-    mov %edx, %eax
+    lock cmpxchg %edx, (%ecx)
+    test %eax, %eax
+    jnz .spl_lock_try
+    mov %ebx, %eax
+    pop %ebx
     ret
 
 .global spl_unlock
 .type spl_unlock, %function
 spl_unlock:
     mov 0x8(%esp), %eax
-    mov 0x4(%esp), %esi
+    mov 0x4(%esp), %ecx
     xor %edx, %edx
-    mov %edx, (%esi)
+    mov %edx, (%ecx)
     push %eax
     popf
     ret
@@ -56,20 +60,29 @@ spl_unlock:
 .global yield_to_spl_unlock
 .type yield_to_spl_unlock, %function
 yield_to_spl_unlock:
-    mov 0xc(%esp), %edi
-    mov 0x8(%esp), %esi
+    mov 0xc(%esp), %edx
+    mov 0x8(%esp), %ecx
     mov 0x4(%esp), %eax
-    push %edi /* old_if, will be restored when switching back */
+    push %edx /* old_if, will be restored when switching back */
+    push %edi
+    push %esi
     push %ebx
     push %ebp
-    mov %esi, %ebx
+    mov %eax, %ebp
+    mov %ecx, %ebx
+    call get_current
+    cmp %eax, %ebp
+    je .yield_to_spl_unlock_no_switch
     push %esp
-    push %eax
+    push %ebp
     call save_and_setup_env
     mov %eax, %esp
+.yield_to_spl_unlock_no_switch:
     xor %eax, %eax
     mov %eax, (%ebx)
     pop %ebp
     pop %ebx
+    pop %esi
+    pop %edi
     popf
     ret
