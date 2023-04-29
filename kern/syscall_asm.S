@@ -106,6 +106,9 @@ sys_\name:
     jmp return_to_user /* check pending exit before iret */
 .endm
 
+/* some ABIs do not place syscall index in a register so we 
+ * need to set different entries for the syscalls
+ */
 NONEXIST_SYSCALL 67 0x43
 NONEXIST_SYSCALL 86 0x56
 NONEXIST_SYSCALL 97 0x61

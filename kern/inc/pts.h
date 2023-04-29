@@ -63,9 +63,10 @@ typedef struct kbd_request_s {
 /** maximum readline size */
 #define MAX_READLINE (CHR_RING_SIZE - 1)
 
+/** a pair of virtual console and keyboard scancode queue */
 typedef struct pts_s {
-    queue_t pts_link;
-    queue_t* pvs;
+    queue_t pts_link; /** in all_pts */
+    queue_t* pvs;     /** PV guests on this pts */
     int refcount;
     mutex_t lock;
 
@@ -86,17 +87,23 @@ typedef struct pts_s {
     char chr_ring[CHR_RING_SIZE];
     int chr_r_pos;
     int chr_w_pos;
-    int forward_tab;
+    int forward_tab; /** whether we should forward tab key to the guest */
 } pts_t;
 
+/** foregound pts */
 extern pts_t* active_pts;
+
+/** lock for operating active_pts */
 extern spl_t pts_lock;
 
+/** @brief initialize pts system
+ */
 void setup_pts();
 
+/** @brief initialize a pts and add it to all_pts
+ *  @param pts pts
+ */
 void pts_init(pts_t* pts);
-
-int putbyte(char ch);
 
 /** @brief Prints character ch at the current location
  *         of the cursor.
@@ -110,6 +117,7 @@ int putbyte(char ch);
  *  the previous character is erased.  See the main console.c description
  *  for more backspace behavior.
  *
+ *  @param pts pts
  *  @param ch the character to print
  *  @return The input character
  */
@@ -128,6 +136,7 @@ int pts_putbyte(pts_t* pts, char ch);
  *  as per putbyte. If len is not a positive integer or s
  *  is null, the function has no effect.
  *
+ *  @param pts pts
  *  @param s The string to be printed.
  *  @param len The length of the string s.
  *  @return Void.
@@ -139,6 +148,7 @@ void pts_putbytes(pts_t* pts, const char* s, int len);
  *
  *  If the color code is invalid, the function has no effect.
  *
+ *  @param pts pts
  *  @param color The new color code.
  *  @return 0 on success or integer error code less than 0 if
  *          color code is invalid.
@@ -148,6 +158,7 @@ int pts_set_term_color(pts_t* pts, int color);
 /** @brief Writes the current foreground and background
  *         color of characters printed on the console
  *         into the argument color.
+ *  @param pts pts
  *  @param color The address to which the current color
  *         information will be written.
  *  @return Void.
@@ -162,6 +173,7 @@ void pts_get_term_color(pts_t* pts, int* color);
  *  currently hidden, a call to set_cursor() does not show
  *  the cursor.
  *
+ *  @param pts pts
  *  @param row The new row for the cursor.
  *  @param col The new column for the cursor.
  *  @return 0 on success or integer error code less than 0 if
@@ -171,6 +183,7 @@ int pts_set_cursor(pts_t* pts, int row, int col);
 
 /** @brief Writes the current position of the cursor
  *         into the arguments row and col.
+ *  @param pts pts
  *  @param row The address to which the current cursor
  *         row will be written.
  *  @param col The address to which the current cursor
@@ -179,10 +192,23 @@ int pts_set_cursor(pts_t* pts, int row, int col);
  */
 void pts_get_cursor(pts_t* pts, int* row, int* col);
 
+/** @brief print a string from user memory to (row, col) using color and restore
+ * everything after printing.
+ *  @param pts pts
+ *  @param len length of the string.
+ *  @param buf string.
+ *  @param row The address to which the current cursor
+ *         row will be written.
+ *  @param col The address to which the current cursor
+ *         column will be written.
+ *  @param color color.
+ *  @return 0 on success, non-zero on failure
+ */
 int pts_print_at(pts_t* pts, int len, va_t buf, int row, int col, int color);
 
 /**
  * @brief read a line to userspace
+ * @param pts pts
  * @param len max length to read
  * @param buf buffer
  * @return size on success, -1 on failure
@@ -195,6 +221,10 @@ int do_readline(int len, va_t buf);
  */
 int do_getchar();
 
+/**
+ * @brief switch to a pts
+ * @param pts pts
+ */
 void switch_pts(pts_t* pts);
 
 #endif /* _PTS_H */

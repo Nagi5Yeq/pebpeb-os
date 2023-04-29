@@ -332,11 +332,12 @@ int pv_inject_irq(stack_frame_t* f, int index, int arg) {
     if (pv == NULL) {
         return -1;
     }
+    /** IRQ happens in host kernel mode or PV guest blocks interrupt */
     if (f->cs != SEGSEL_PV_CS || (pv->vif & EFL_IF) == 0) {
         pv_pend_irq(pv, index, arg);
         return 0;
     }
-    pv_idt_entry_t* idt = &pv->vidt.irq[index - PV_IRQ_START];
+    pv_idt_entry_t* idt = &pv->vidt.fault_irq[index];
     if (idt->eip == 0) {
         goto no_idt_handler;
     }
@@ -359,11 +360,11 @@ void pv_check_pending_irq(stack_frame_t* f) {
     int i;
     for (i = 0; i < (PV_IRQ_END - PV_IRQ_START); i++) {
         if (vidt->pending_irq[i].pending != 0) {
-            if (vidt->irq[i].eip == 0) {
+            if (vidt->fault_irq[i + PV_IRQ_START].eip == 0) {
                 goto no_idt_handler;
             }
             pv_inject_interrupt(t, pv, f, vidt->pending_irq[i].arg,
-                                vidt->irq[i].eip);
+                                vidt->fault_irq[i + PV_IRQ_START].eip);
             vidt->pending_irq[i].pending = 0;
             restore_if(old_if);
             return;

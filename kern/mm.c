@@ -45,7 +45,7 @@ static unsigned char* user_page_bitmap;
 /** minimum size of last bin */
 #define LAST_BIN_SIZE (1 << (NUM_BINS - 1))
 /** bins for free chunks */
-static pa_t bins[9];
+static pa_t bins[NUM_BINS];
 
 mutex_t mm_lock = MUTEX_INIT;
 

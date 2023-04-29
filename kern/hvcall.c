@@ -1,6 +1,6 @@
-/** @file syscall_hvcall.c
+/** @file hvcall.c
  *
- *  @brief miscellaneous syscalls.
+ *  @brief hypercalls.
  *
  *  @author Hanjie Wu (hanjiew)
  *  @bug No functional bugs
@@ -34,25 +34,87 @@
 #include <timer.h>
 #include <usermem.h>
 
+/** reference a page table to prevent hypevisor of freeing its shadow page table
+ */
 #define HV_REFPD_OP HV_RESERVED_0
+/** release the reference to a page table to let hypevisor free its
+ * shadow page table
+ */
 #define HV_UNREFPD_OP HV_RESERVED_1
+/** load a previously referenced page table so hypervisor do not need to
+ * retranslate it
+ */
 #define HV_LOADPD_OP HV_RESERVED_2
 
+/**
+ * @brief exit() hypercall handler
+ * @param f saved regs
+ */
 static void hvcall_exit(stack_frame_t* f);
+/**
+ * @brief iret() hypercall handler
+ * @param f saved regs
+ */
 static void hvcall_iret(stack_frame_t* f);
+/**
+ * @brief setidt() hypercall handler
+ * @param f saved regs
+ */
 static void hvcall_setidt(stack_frame_t* f);
+/**
+ * @brief setpd() hypercall handler
+ * @param f saved regs
+ */
 static void hvcall_setpd(stack_frame_t* f);
+/**
+ * @brief adjustpg() hypercall handler
+ * @param f saved regs
+ */
 static void hvcall_adjustpg(stack_frame_t* f);
+/**
+ * @brief print() hypercall handler
+ * @param f saved regs
+ */
 static void hvcall_print(stack_frame_t* f);
+/**
+ * @brief set_color() hypercall handler
+ * @param f saved regs
+ */
 static void hvcall_set_color(stack_frame_t* f);
+/**
+ * @brief set_cursor() hypercall handler
+ * @param f saved regs
+ */
 static void hvcall_set_cursor(stack_frame_t* f);
+/**
+ * @brief get_cursor() hypercall handler
+ * @param f saved regs
+ */
 static void hvcall_get_cursor(stack_frame_t* f);
+/**
+ * @brief print_at() hypercall handler
+ * @param f saved regs
+ */
 static void hvcall_print_at(stack_frame_t* f);
 
+/**
+ * @brief refpd/unrefpd() hypercall handler
+ * @param f saved regs
+ */
 static void hvcall_refpd(int ref);
+/**
+ * @brief loadpd() hypercall handler
+ * @param f saved regs
+ */
 static void hvcall_loadpd(stack_frame_t* f);
 
-// 0: processed
+/**
+ * @brief try to handle a syscall for PV guest
+ * @param index syscall index
+ * @param f saved regs
+ * @return 0 if a syscall is injected to PV guest, -1 if current thread is not
+ * PV guest
+ */
 int pv_handle_syscall(int index, stack_frame_t* f) {
     thread_t* t = get_current();
     pv_t* pv = t->process->pv;
@@ -65,7 +127,7 @@ int pv_handle_syscall(int index, stack_frame_t* f) {
             goto no_idt_handler;
         }
         if (idt->desc != VIDT_DPL_3) {
-            idt = &pv->vidt.fault[SWEXN_CAUSE_PROTFAULT - PV_FAULT_START];
+            idt = &pv->vidt.fault_irq[SWEXN_CAUSE_PROTFAULT - PV_FAULT_START];
             if (idt->eip == 0) {
                 goto no_idt_handler;
             }
@@ -80,8 +142,13 @@ no_idt_handler:
     return 1;
 }
 
+/**
+ * @brief all hypercall entry
+ * @param f saved regs
+ */
 void sys_hvcall_real(stack_frame_t* f) {
     pv_t* pv = get_current()->process->pv;
+    /** hide hypercall for non-PV process and usermode programs in PV guest */
     if (pv == NULL || f->eip >= USER_MEM_START) {
         return;
     }
@@ -153,6 +220,7 @@ read_arg_fail:
     pv_die("Bad argument address");
 }
 
+/** eflags that can be changed by PV guests */
 #define EFLAGS_PV_MASK                                                       \
     (EFL_CF | EFL_PF | EFL_AF | EFL_ZF | EFL_SF | EFL_TF | EFL_DF | EFL_OF | \
      EFL_RF)
@@ -161,7 +229,7 @@ static void hvcall_iret(stack_frame_t* f) {
     thread_t* t = get_current();
     pv_t* pv = t->process->pv;
     reg_t esp = f->esp;
-    reg_t regs[5];
+    reg_t regs[5]; /* eip, eflags, esp, esp0, eax */
     if (copy_from_user(esp, 5 * sizeof(reg_t), regs) != 0) {
         goto read_arg_fail;
     }
@@ -205,11 +273,11 @@ static void hvcall_setidt(stack_frame_t* f) {
     if (copy_from_user(esp + 2 * sizeof(va_t), sizeof(int), &is_dpl0) != 0) {
         goto read_arg_fail;
     }
-    if (index < 0 || index >= IDT_ENTS) {
-        goto bad_idt_index;
-    }
     pv_t* pv = get_current()->process->pv;
     pv_idt_entry_t* idt = pv_classify_interrupt(pv, index);
+    if (idt == NULL) {
+        goto bad_idt_index;
+    }
     idt->eip = eip0;
     idt->desc = ((idt->desc & (~VIDT_DPL_MASK)) |
                  (is_dpl0 != 0 ? VIDT_DPL_0 : VIDT_DPL_3));
@@ -221,6 +289,13 @@ read_arg_fail:
     pv_die("Bad argument address");
 }
 
+/**
+ * @brief translate a PV guest's page table to shadow page tables
+ * @param pv PV control block for PV guest
+ * @param pd guest page table physical address
+ * @param wp is CR0_WP bit enabled for guest
+ * @return shadow page table, or NULL on failure
+ */
 static pv_pd_t* translate_pv_pd(pv_t* pv, pa_t pd, int wp);
 
 static void hvcall_setpd(stack_frame_t* f) {
@@ -254,7 +329,9 @@ read_arg_fail:
     pv_die("Bad argument address");
 }
 
+/** customizable bits in pde */
 #define PDE_RESV_MASK 0xf00
+/** customizable bits in pte */
 #define PTE_RESV_MASK 0xe00
 
 static pv_pd_t* translate_pv_pd(pv_t* pv, pa_t pd, int wp) {
@@ -303,7 +380,8 @@ static pv_pd_t* translate_pv_pd(pv_t* pv, pa_t pd, int wp) {
     if (pd >= mem_limit) {
         goto bad_pt;
     }
-    pd += pv->mem_base;
+    pd += pv->mem_base; /** convert guest physical address to host physical
+                           address */
     for (i = 0; i < NUM_PAGE_ENTRY - USER_PD_START; i++) {
         page_directory_t* old_pd = (page_directory_t*)map_phys_page(pd, NULL);
         pde_t old_pde = (*old_pd)[i];
@@ -327,13 +405,15 @@ static pv_pd_t* translate_pv_pd(pv_t* pv, pa_t pd, int wp) {
             }
             pa_t pa = get_page_base(old_pte);
             if (pa > mem_limit) {
-                pa = overflow_pa;
+                pa = overflow_pa; /** emulate memory access outside physical
+                                     address limit */
             } else {
                 pa = pv->mem_base + pa;
             }
             int old_us = (old_pte & (1 << PTE_US_SHIFT));
             int old_rw = (old_pte & (1 << PTE_RW_SHIFT));
             int new_mask, new_user_mask;
+            /** if WP is disabled, PV kernel can always write anywhere */
             if (wp == 0) {
                 new_mask = ((1 << PTE_P_SHIFT) | (PTE_RW << PTE_RW_SHIFT) |
                             (PTE_USER << PTE_US_SHIFT));
@@ -341,6 +421,7 @@ static pv_pd_t* translate_pv_pd(pv_t* pv, pa_t pd, int wp) {
                 new_mask =
                     ((1 << PTE_P_SHIFT) | old_rw | (PTE_USER << PTE_US_SHIFT));
             }
+            /** hide PV kernel in usermode program's page table */
             if ((old_us & old_pde_us) != 0) {
                 new_user_mask =
                     ((1 << PTE_P_SHIFT) | old_rw | (PTE_USER << PTE_US_SHIFT));
@@ -363,6 +444,7 @@ static pv_pd_t* translate_pv_pd(pv_t* pv, pa_t pd, int wp) {
             free_user_pages(new_pt, 1);
             goto alloc_pt_fail;
         }
+        /** write the new page table */
         memcpy((void*)map_phys_page(new_pt, NULL), t_pt, PAGE_SIZE);
         memcpy((void*)map_phys_page(new_user_pt, NULL), t_user_pt, PAGE_SIZE);
         pde_t new_pde = ((old_pde & PDE_RESV_MASK) |
@@ -372,6 +454,7 @@ static pv_pd_t* translate_pv_pd(pv_t* pv, pa_t pd, int wp) {
         } else {
             new_pde |= (old_pde & (1 << PTE_RW_SHIFT));
         }
+        /** insert the page table into page directory */
         (*t_pd)[USER_PD_START + i] = (new_pt | new_pde);
         (*t_user_pd)[USER_PD_START + i] = (new_user_pt | new_pde);
     }
@@ -687,7 +770,7 @@ static void hvcall_refpd(int ref) {
     } else {
         pv_pd->refcount--;
         if (pv_pd->refcount <= 0) {
-            pv_die("Page table destroyed by kerenl");
+            pv_die("Page table destroyed by PV kerenl");
         }
     }
 }

@@ -38,6 +38,7 @@ a_char_on_screen_t (*console_mem)[CONSOLE_WIDTH] =
 
 pts_t* active_pts = NULL;
 spl_t pts_lock = SPL_INIT;
+/** all pts structures */
 queue_t* all_pts = NULL;
 
 pts_t kernel_pts;
@@ -88,6 +89,7 @@ void switch_pts(pts_t* new_pts) {
 /**
  * @brief Move the cursor to a position. Position is checked before calling this
  * function
+ * @param pts pts
  * @param x x
  * @param y y
  */

@@ -231,32 +231,113 @@ void sys_readfile();
  */
 void sys_swexn();
 
+/**
+ * @brief syscall 67 entry
+ */
 void sys_67();
+/**
+ * @brief syscall 86 entry
+ */
 void sys_86();
+/**
+ * @brief syscall 97 entry
+ */
 void sys_97();
+/**
+ * @brief syscall 99 entry
+ */
 void sys_99();
+/**
+ * @brief syscall 100 entry
+ */
 void sys_100();
+/**
+ * @brief syscall 101 entry
+ */
 void sys_101();
+/**
+ * @brief syscall 102 entry
+ */
 void sys_102();
+/**
+ * @brief syscall 103 entry
+ */
 void sys_103();
+/**
+ * @brief syscall 104 entry
+ */
 void sys_104();
+/**
+ * @brief syscall 105 entry
+ */
 void sys_105();
+/**
+ * @brief syscall 106 entry
+ */
 void sys_106();
+/**
+ * @brief syscall 107 entry
+ */
 void sys_107();
+/**
+ * @brief syscall 108 entry
+ */
 void sys_108();
+/**
+ * @brief syscall 109 entry
+ */
 void sys_109();
+/**
+ * @brief syscall 110 entry
+ */
 void sys_110();
+/**
+ * @brief syscall 111 entry
+ */
 void sys_111();
+/**
+ * @brief syscall 112 entry
+ */
 void sys_112();
+/**
+ * @brief syscall 113 entry
+ */
 void sys_113();
+/**
+ * @brief syscall 114 entry
+ */
 void sys_114();
+/**
+ * @brief syscall 115 entry
+ */
 void sys_115();
+/**
+ * @brief syscall 128 entry
+ */
 void sys_128();
+/**
+ * @brief syscall 129 entry
+ */
 void sys_129();
+/**
+ * @brief syscall 130 entry
+ */
 void sys_130();
+/**
+ * @brief syscall 131 entry
+ */
 void sys_131();
+/**
+ * @brief syscall 132 entry
+ */
 void sys_132();
+/**
+ * @brief syscall 133 entry
+ */
 void sys_133();
+/**
+ * @brief syscall 134 entry
+ */
 void sys_134();
 
 /**
@@ -264,6 +345,9 @@ void sys_134();
  */
 void sys_nonexist();
 
+/**
+ * @brief hypercall entry
+ */
 void sys_hvcall();
 
 /** index of first syscall */
@@ -447,6 +531,12 @@ void handle_fault(ureg_t* frame) {
     handle_user_fault(frame, current);
 }
 
+/**
+ * @brief handle a ZFOD caused fault
+ * @param frame ureg registers
+ * @param t current thread
+ * @return -1 if not ZFOD fault, 0 for success
+ */
 static int handle_zfod(ureg_t* frame, thread_t* t) {
     int result = -1;
     process_t* p = t->process;
@@ -470,6 +560,11 @@ static int handle_zfod(ureg_t* frame, thread_t* t) {
     return result;
 }
 
+/**
+ * @brief handle a kernel mode fault
+ * @param frame ureg registers
+ * @param t current thread
+ */
 static void handle_kernel_fault(ureg_t* frame, thread_t* t) {
     /* recover from accessing user memory */
     if ((frame->cause == SWEXN_CAUSE_PAGEFAULT ||
@@ -480,10 +575,15 @@ static void handle_kernel_fault(ureg_t* frame, thread_t* t) {
     }
     /* all other non recoverable fault */
     dump_fault(frame);
-    while (1) {
-    }
+    do {
+    } while (1);
 }
 
+/**
+ * @brief handle user mode fault
+ * @param frame ureg registers
+ * @param t current thread
+ */
 static void handle_user_fault(ureg_t* frame, thread_t* t) {
     /* send to user swexn */
     if (t->eip3 != 0 && t->df3 == 0) {

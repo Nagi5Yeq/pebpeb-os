@@ -358,6 +358,7 @@ void destroy_thread(thread_t* t) {
         free_user_pages(r->paddr, r->size / PAGE_SIZE);
     }
     vector_free(&p->regions);
+    /** PV guests' page tables are managed by pv_pd_t */
     if (p->pv == NULL) {
         destroy_pd(p->cr3);
     } else {
@@ -726,6 +727,7 @@ void kill_current() {
             free_user_pages(r->paddr, r->size / PAGE_SIZE);
         }
         vector_free(&p->regions);
+        /** PV guests' page tables are managed by pv_pd_t */
         if (p->pv == NULL) {
             destroy_pd(old_cr3);
         } else {

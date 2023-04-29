@@ -40,9 +40,6 @@ void timer_test_handler();
 void timer_init() {
     /* use 10x slower frequency for APIC timer testing */
     int counter = TIMER_RATE / (TIMER_FREQ / 10);
-    outb(TIMER_MODE_IO_PORT, TIMER_ONE_SHOT);
-    outb(TIMER_PERIOD_IO_PORT, counter & 0xFF);
-    outb(TIMER_PERIOD_IO_PORT, (counter >> 8) & 0xFF);
     if (heap_init(&timers) != 0) {
         panic("no space to initialize timer heap");
     }
@@ -70,6 +67,7 @@ void timer_init() {
         }
     }
 
+    /* 10 10x slow tests to calculate LAPIC frequency */
     lapic_dt = (0xffffffff - lapic_read(LAPIC_TIMER_CUR)) / 100;
     lapic_write(LAPIC_TIMER_INIT, 0);
     idt[TIMER_IDT_ENTRY] = old_idt;

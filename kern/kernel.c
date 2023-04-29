@@ -33,8 +33,6 @@
 #include <timer.h>
 #include <toad.h>
 
-void print_toad();
-
 /**
  * @brief entry for a cpu core
  * @param cpuid cpuid
@@ -73,6 +71,7 @@ int kernel_main(mbinfo_t* mbinfo, int argc, char** argv, char** envp) {
 
     const char* init_args[] = {INIT_NAME};
     thread_t* init = create_process(INIT_PID, INIT_NAME, 1, init_args);
+    assert(init != NULL);
     init_process = init->process;
     add_thread(init);
     insert_ready_tail(init);
@@ -103,6 +102,7 @@ static void kernel_smp_entry(int cpuid) {
 static void kernel_smp_main() {
     const char* idle_args[] = {IDLE_NAME};
     thread_t* idle = create_process(IDLE_PID, IDLE_NAME, 1, idle_args);
+    assert(idle != NULL);
     set_idle(idle);
 
     while (1) {

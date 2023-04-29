@@ -1,6 +1,7 @@
 #include <pts.h>
 #include <sched.h>
 
+/* https://en.wikipedia.org/wiki/Toad_worship */
 const char toad[] =
     "..:.         ......::..  ..^7JYYJJJJJYJJJJ??7~^:..         ^~^^:........  "
     "      "
